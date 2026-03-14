@@ -1,0 +1,843 @@
+import QtCore
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Effects
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+import qs.Common
+import qs.Widgets
+import qs.Services
+import qs.Modules.Plugins
+
+PluginSettings {
+    id: root
+    pluginId: "mpvpaper"
+
+    property var monitors: Quickshell.screens.map(screen => screen.name)
+    property string selectedMonitor: monitors.length > 0 ? monitors[0] : ""
+    property int playlistVersion: 0
+    property int currentVideoRefresh: 0
+
+    Connections {
+        target: pluginService
+        enabled: pluginService !== null
+        function onPluginDataChanged(changedPluginId) {
+            if (changedPluginId === pluginId) {
+                currentVideoRefresh++
+            }
+        }
+    }
+
+    onSelectedMonitorChanged: {
+        playlistVersion++
+    }
+
+    StyledText {
+        text: "MPV 壁纸"
+        font.pixelSize: Theme.fontSizeLarge
+        font.weight: Font.Bold
+    }
+
+    StyledText {
+        text: "使用 mpvpaper 的视频壁纸"
+        font.pixelSize: Theme.fontSizeMedium
+        opacity: 0.7
+        wrapMode: Text.Wrap
+    }
+
+    Rectangle {
+        width: parent.width
+        height: 1
+        color: Theme.outlineStrong
+    }
+
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+
+        StyledText {
+            text: "显示器"
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            width: 180
+            anchors.verticalCenter: parent.verticalCenter
+        }
+
+        DankDropdown {
+            width: parent.width - 180 - Theme.spacingM
+            options: root.monitors
+            currentValue: root.selectedMonitor || "无显示器"
+            enabled: root.monitors.length > 1
+            compactMode: true
+
+            onValueChanged: (value) => {
+                root.selectedMonitor = value
+            }
+        }
+    }
+
+    Item {
+        width: parent.width
+        height: Theme.spacingM
+    }
+
+    StyledText {
+        text: {
+            currentVideoRefresh
+            const playlist = getPlaylist()
+            if (playlist.length > 0) {
+                return "视频列表（" + playlist.length + " 个视频）"
+            }
+            return "视频列表（无视频）"
+        }
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.Medium
+        wrapMode: Text.Wrap
+    }
+
+    StyledText {
+        text: "添加视频到列表，然后选择播放模式"
+        font.pixelSize: Theme.fontSizeSmall
+        opacity: 0.7
+        wrapMode: Text.Wrap
+    }
+
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+
+        DankButton {
+            text: "添加视频"
+            width: (parent.width - Theme.spacingM) / 2
+            onClicked: {
+                openSystemFilePicker()
+            }
+        }
+
+        DankButton {
+            text: "清空列表"
+            width: (parent.width - Theme.spacingM) / 2
+            enabled: getPlaylist().length > 0
+            onClicked: {
+                clearPlaylist()
+            }
+        }
+    }
+
+    // Grid layout for video thumbnails
+    GridView {
+        id: videoGridView
+        width: parent.width
+        cellWidth: width / 3  // 3 columns
+        cellHeight: cellWidth * 9 / 16  // 16:9 ratio
+        height: Math.ceil(getPlaylist().length / 3) * cellHeight
+        clip: true
+        interactive: false
+        highlightFollowsCurrentItem: true
+        highlightMoveDuration: Theme.shortDuration
+
+        highlight: Item {
+            z: 1000
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingXS
+                color: "transparent"
+                border.width: 3
+                border.color: Theme.primary
+                radius: Theme.cornerRadius
+            }
+        }
+
+        model: {
+            var v = playlistVersion
+            return getPlaylist()
+        }
+
+        onModelChanged: {
+            // Update currentIndex when model changes
+            const currentPath = getCurrentVideoPath()
+            const playlist = getPlaylist()
+            const idx = playlist.indexOf(currentPath)
+            if (idx !== -1) {
+                currentIndex = idx
+            }
+        }
+
+        delegate: Item {
+            width: videoGridView.cellWidth
+            height: videoGridView.cellHeight
+
+            required property string modelData
+            required property int index
+            
+            property bool isSelected: videoGridView.currentIndex === index
+
+            Rectangle {
+                id: videoCard
+                anchors.fill: parent
+                anchors.margins: Theme.spacingXS
+                radius: Theme.cornerRadius
+                color: Theme.withAlpha(Theme.surfaceContainerHighest, Theme.popupTransparency)
+                clip: true
+
+                Rectangle {
+                    id: maskRect
+                    width: thumbnailImage.width
+                    height: thumbnailImage.height
+                    radius: Theme.cornerRadius
+                    visible: false
+                    layer.enabled: true
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: isSelected ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : "transparent"
+                    radius: parent.radius
+
+                    Behavior on color {
+                        ColorAnimation {
+                            duration: Theme.shortDuration
+                            easing.type: Theme.standardEasing
+                        }
+                    }
+                }
+
+                // Blue border for selected video
+                Rectangle {
+                    anchors.fill: parent
+                    color: "transparent"
+                    border.width: isSelected ? 3 : 0
+                    border.color: Theme.primary
+                    radius: parent.radius
+
+                    Behavior on border.width {
+                        NumberAnimation {
+                            duration: Theme.shortDuration
+                            easing.type: Theme.standardEasing
+                        }
+                    }
+                }
+
+                Image {
+                    id: thumbnailImage
+                    anchors.fill: parent
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    cache: true
+
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        maskEnabled: true
+                        maskThresholdMin: 0.5
+                        maskSpreadAtMin: 1.0
+                        maskSource: maskRect
+                    }
+
+                    property string videoPath: modelData
+                    property string thumbnailPath: ""
+
+                    Component.onCompleted: {
+                        generateThumbnail()
+                    }
+
+                    function generateThumbnail() {
+                        const cacheHome = StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "")
+                        const cacheDir = cacheHome + "/DankMaterialShell/mpvpaper_thumbnails"
+                        
+                        const hash = videoPath.split('').reduce((a, b) => {
+                            a = ((a << 5) - a) + b.charCodeAt(0)
+                            return a & a
+                        }, 0)
+                        
+                        thumbnailPath = cacheDir + "/" + Math.abs(hash) + "_thumb.jpg"
+                        
+                        playlistThumbCheckProcess.thumbnailPath = thumbnailPath
+                        playlistThumbCheckProcess.videoPath = videoPath
+                        playlistThumbCheckProcess.cacheDir = cacheDir
+                        playlistThumbCheckProcess.command = ["test", "-f", thumbnailPath]
+                        playlistThumbCheckProcess.running = true
+                    }
+
+                    Process {
+                        id: playlistThumbCheckProcess
+                        property string thumbnailPath: ""
+                        property string videoPath: ""
+                        property string cacheDir: ""
+
+                        onExited: (code) => {
+                            if (code === 0) {
+                                thumbnailImage.source = "file://" + thumbnailPath
+                            } else {
+                                playlistThumbGenProcess.thumbnailPath = thumbnailPath
+                                playlistThumbGenProcess.videoPath = videoPath
+                                playlistThumbGenProcess.cacheDir = cacheDir
+                                playlistThumbGenProcess.command = ["bash", "-c",
+                                    `mkdir -p "${cacheDir}" && ffmpeg -i "${videoPath}" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2" -q:v 3 "${thumbnailPath}" -y 2>/dev/null`
+                                ]
+                                playlistThumbGenProcess.running = true
+                            }
+                        }
+                    }
+
+                    Process {
+                        id: playlistThumbGenProcess
+                        property string thumbnailPath: ""
+                        property string videoPath: ""
+                        property string cacheDir: ""
+
+                        onExited: (code) => {
+                            if (code === 0) {
+                                thumbnailImage.source = "file://" + thumbnailPath
+                            } else {
+                                console.warn("MpvPaper Settings: Failed to generate thumbnail for", videoPath, "exit code:", code)
+                            }
+                        }
+                    }
+                }
+
+                // Fallback icon (only show when no source or error)
+                DankIcon {
+                    anchors.centerIn: parent
+                    name: "movie"
+                    size: 32
+                    color: Theme.primary
+                    visible: thumbnailImage.status === Image.Null || thumbnailImage.status === Image.Error
+                }
+
+                StateLayer {
+                    anchors.fill: parent
+                    cornerRadius: parent.radius
+                    stateColor: Theme.primary
+                }
+                
+                // Click area for video selection
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        videoGridView.currentIndex = index
+                        setCurrentVideo(modelData)
+                    }
+                }
+
+                // Remove button overlay (top-right corner)
+                Rectangle {
+                    id: removeButton
+                    width: 24
+                    height: 24
+                    radius: 12
+                    color: "#D32F2F"
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.margins: 8
+                    visible: removeMouseArea.containsMouse
+                    z: 100
+
+                    DankIcon {
+                        anchors.centerIn: parent
+                        name: "close"
+                        size: 16
+                        color: "white"
+                    }
+
+                    MouseArea {
+                        id: removeMouseArea
+                        anchors.fill: parent
+                        anchors.margins: -4
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            removeFromPlaylist(index)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        width: parent.width
+        height: 1
+        color: Theme.outlineStrong
+    }
+
+    StyledText {
+        text: "视频设置"
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.Medium
+    }
+
+    Column {
+        width: parent.width
+        spacing: 2
+
+        Row {
+            id: hwdecRow
+            width: parent.width
+            spacing: Theme.spacingM
+
+            StyledText {
+                text: "硬件解码"
+                font.pixelSize: Theme.fontSizeSmall
+                width: 180
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            DankDropdown {
+                id: hwdecDropdown
+                width: parent.width - 180 - Theme.spacingM
+                options: ["auto", "no", "vaapi", "vdpau", "nvdec"]
+                compactMode: true
+
+                Binding {
+                    target: hwdecDropdown
+                    property: "currentValue"
+                    value: getVideoSetting("hwdec", "auto")
+                }
+
+                onValueChanged: (value) => {
+                    saveVideoSetting("hwdec", value)
+                }
+            }
+        }
+        StyledText {
+            text: "视频解码的硬件加速方法"
+            font.pixelSize: Theme.fontSizeSmall * 0.9
+            opacity: 0.5
+            width: parent.width
+            wrapMode: Text.Wrap
+        }
+    }
+
+    Column {
+        width: parent.width
+        spacing: 2
+
+        Row {
+            width: parent.width
+            spacing: Theme.spacingM
+            StyledText {
+                text: "平铺模式"
+                font.pixelSize: Theme.fontSizeSmall
+                width: 180
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            DankDropdown {
+                id: panscanDropdown
+                width: parent.width - 180 - Theme.spacingM
+                options: ["填充屏幕（裁剪）", "适应屏幕（黑边）", "拉伸填充"]
+                compactMode: true
+
+                Binding {
+                    target: panscanDropdown
+                    property: "currentValue"
+                    value: {
+                        const panscan = getVideoSetting("panscan", 1.0)
+                        if (panscan === 1.0) return "填充屏幕（裁剪）"
+                        if (panscan === 0.0) return "适应屏幕（黑边）"
+                        return "拉伸填充"
+                    }
+                }
+
+                onValueChanged: (value) => {
+                    if (value === "填充屏幕（裁剪）") {
+                        saveVideoSetting("panscan", 1.0)
+                    } else if (value === "适应屏幕（黑边）") {
+                        saveVideoSetting("panscan", 0.0)
+                    } else {
+                        saveVideoSetting("panscan", 0.5)
+                    }
+                }
+            }
+        }
+        StyledText {
+            text: "选择视频如何适应屏幕尺寸"
+            font.pixelSize: Theme.fontSizeSmall * 0.9
+            opacity: 0.5
+            width: parent.width
+            wrapMode: Text.Wrap
+        }
+    }
+
+    Timer {
+        id: volumeDebounceTimer
+        interval: 500
+        repeat: false
+        onTriggered: {
+            saveVideoSetting("volume", Math.round(volumeSlider.value))
+        }
+    }
+
+    Column {
+        width: parent.width
+        spacing: 2
+
+        Row {
+            id: volumeRow
+            width: parent.width
+            height: 24
+            spacing: Theme.spacingM
+
+            StyledText {
+                text: "音量"
+                font.pixelSize: Theme.fontSizeSmall
+                width: 180
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            DankSlider {
+                id: volumeSlider
+                width: parent.width - 180 - Theme.spacingM - volumeValueText.width - Theme.spacingM
+                minimum: 0
+                maximum: 100
+                showValue: false
+                anchors.verticalCenter: parent.verticalCenter
+
+                Binding {
+                    target: volumeSlider
+                    property: "value"
+                    value: getVideoSetting("volume", 0)
+                }
+
+                onSliderValueChanged: (newValue) => {
+                    volumeDebounceTimer.restart()
+                }
+            }
+
+            StyledText {
+                id: volumeValueText
+                text: Math.round(volumeSlider.value)
+                font.pixelSize: Theme.fontSizeSmall
+                width: 40
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+        StyledText {
+            text: "音频音量（0 = 静音）"
+            font.pixelSize: Theme.fontSizeSmall * 0.9
+            opacity: 0.5
+            width: parent.width
+            wrapMode: Text.Wrap
+        }
+    }
+
+    Rectangle {
+        width: parent.width
+        height: 1
+        color: Theme.outlineStrong
+    }
+
+    Column {
+        width: parent.width
+        spacing: 2
+
+        Row {
+            width: parent.width
+            spacing: Theme.spacingM
+            StyledText {
+                text: "定时重启间隔"
+                font.pixelSize: Theme.fontSizeSmall
+                width: 180
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            DankDropdown {
+                id: restartIntervalDropdown
+                width: parent.width - 180 - Theme.spacingM
+                options: ["禁用", "10 分钟", "30 分钟", "1 小时", "2 小时"]
+                compactMode: true
+
+                Binding {
+                    target: restartIntervalDropdown
+                    property: "currentValue"
+                    value: {
+                        const interval = loadValue("restartInterval", 60)
+                        if (interval === 0) return "禁用"
+                        if (interval === 10) return "10 分钟"
+                        if (interval === 30) return "30 分钟"
+                        if (interval === 60) return "1 小时"
+                        if (interval === 120) return "2 小时"
+                        return "1 小时"
+                    }
+                }
+
+                onValueChanged: (value) => {
+                    let interval = 60
+                    if (value === "禁用") interval = 0
+                    else if (value === "10 分钟") interval = 10
+                    else if (value === "30 分钟") interval = 30
+                    else if (value === "1 小时") interval = 60
+                    else if (value === "2 小时") interval = 120
+                    saveValue("restartInterval", interval)
+                }
+            }
+        }
+        StyledText {
+            text: "定期重启 mpv 进程以防止潜在的内存泄漏"
+            font.pixelSize: Theme.fontSizeSmall * 0.9
+            opacity: 0.5
+            width: parent.width
+            wrapMode: Text.Wrap
+        }
+    }
+
+    Rectangle {
+        width: parent.width
+        height: 1
+        color: Theme.outlineStrong
+    }
+
+    function openSystemFilePicker() {
+        systemFilePickerProcess.running = true
+    }
+
+    Process {
+        id: systemFilePickerProcess
+        property string selectedFile: ""
+
+        // Try zenity first (GNOME), fallback to kdialog (KDE)
+        command: ["bash", "-c",
+            `if command -v zenity >/dev/null 2>&1; then
+                zenity --file-selection --title="选择视频文件" --file-filter="视频文件 | *.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v" --file-filter="所有文件 | *"
+            elif command -v kdialog >/dev/null 2>&1; then
+                kdialog --getopenfilename ~ "*.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v|视频文件"
+            else
+                echo "ERROR: No file picker available"
+                exit 1
+            fi`
+        ]
+
+        stdout: SplitParser {
+            onRead: (data) => {
+                systemFilePickerProcess.selectedFile += data
+            }
+        }
+
+        onExited: (code) => {
+            const trimmedFile = selectedFile.trim()
+            if (code === 0 && trimmedFile !== "") {
+                // User selected a file
+                addToPlaylist(trimmedFile)
+                ToastService.showInfo("视频已添加", trimmedFile.substring(trimmedFile.lastIndexOf('/') + 1))
+            } else if (trimmedFile.includes("ERROR")) {
+                // No file picker available, use custom browser
+                console.log("MpvPaper: System file picker not available, using custom browser")
+                const currentPath = getCurrentVideoPath()
+                const initialDir = currentPath ? currentPath.substring(0, currentPath.lastIndexOf('/')) : ""
+                videoBrowser.initialDirectory = initialDir
+                videoBrowser.open()
+            }
+            // If code !== 0 and no ERROR message, user cancelled - do nothing
+            selectedFile = ""
+        }
+    }
+
+    function getCurrentVideoPath() {
+        var monitorVideos = loadValue("monitorVideos", {})
+        return monitorVideos[selectedMonitor] || ""
+    }
+
+    function getPlaylist() {
+        var playlists = loadValue("monitorPlaylists", {})
+        var list = playlists[selectedMonitor]
+        return Array.isArray(list) ? list : []
+    }
+
+    function addToPlaylist(videoPath) {
+        var playlists = loadValue("monitorPlaylists", {})
+        if (!playlists[selectedMonitor]) {
+            playlists[selectedMonitor] = []
+        }
+        
+        // Check if video already exists in playlist
+        if (playlists[selectedMonitor].indexOf(videoPath) !== -1) {
+            ToastService.showWarning("视频已存在", "该视频已在列表中")
+            return
+        }
+        
+        playlists[selectedMonitor].push(videoPath)
+        saveValue("monitorPlaylists", playlists)
+        
+        // Set as current video
+        var monitorVideos = loadValue("monitorVideos", {})
+        monitorVideos[selectedMonitor] = videoPath
+        saveValue("monitorVideos", monitorVideos)
+        
+        playlistVersion++
+        var currentMonitor = selectedMonitor
+        selectedMonitor = ""
+        selectedMonitor = currentMonitor
+    }
+
+    function setCurrentVideo(videoPath) {
+        // Find the index of this video in the playlist
+        var playlists = loadValue("monitorPlaylists", {})
+        var playlist = playlists[selectedMonitor]
+        
+        if (playlist && Array.isArray(playlist)) {
+            var videoIndex = playlist.indexOf(videoPath)
+            if (videoIndex !== -1) {
+                // Save the index so the plugin backend uses it
+                var indices = loadValue("playlistIndices", {})
+                indices[selectedMonitor] = videoIndex
+                saveValue("playlistIndices", indices)
+                
+                // Update GridView currentIndex
+                videoGridView.currentIndex = videoIndex
+            }
+        }
+        
+        // Set as current video
+        var monitorVideos = loadValue("monitorVideos", {})
+        monitorVideos[selectedMonitor] = videoPath
+        saveValue("monitorVideos", monitorVideos)
+        
+        // Trigger refresh using the same method as addToPlaylist
+        playlistVersion++
+        var currentMonitor = selectedMonitor
+        selectedMonitor = ""
+        selectedMonitor = currentMonitor
+    }
+
+    function removeFromPlaylist(index) {
+        var playlists = loadValue("monitorPlaylists", {})
+        var list = playlists[selectedMonitor]
+        if (!Array.isArray(list) || index < 0 || index >= list.length) return
+        
+        // Get the video path before removing
+        var videoPath = list[index]
+        
+        // Delete thumbnail cache for this video
+        deleteThumbnailCache(videoPath)
+        
+        // Remove from list
+        list.splice(index, 1)
+        
+        if (list.length === 0) {
+            // No videos left, clear everything
+            delete playlists[selectedMonitor]
+            saveValue("monitorPlaylists", playlists)
+            
+            var monitorVideos = loadValue("monitorVideos", {})
+            delete monitorVideos[selectedMonitor]
+            saveValue("monitorVideos", monitorVideos)
+            
+            // Clear playlist index
+            var indices = loadValue("playlistIndices", {})
+            delete indices[selectedMonitor]
+            saveValue("playlistIndices", indices)
+        } else {
+            // Update playlist
+            playlists[selectedMonitor] = list
+            saveValue("monitorPlaylists", playlists)
+            
+            // Update current video and index
+            var currentVideoPath = getCurrentVideoPath()
+            var currentIndex = list.indexOf(currentVideoPath)
+            
+            if (currentIndex === -1) {
+                // Current video was removed, switch to first video
+                currentIndex = 0
+                var monitorVideos = loadValue("monitorVideos", {})
+                monitorVideos[selectedMonitor] = list[0]
+                saveValue("monitorVideos", monitorVideos)
+            } else if (index < currentIndex) {
+                // A video before current was removed, adjust index
+                currentIndex = currentIndex - 1
+            }
+            
+            // Update playlist index
+            var indices = loadValue("playlistIndices", {})
+            indices[selectedMonitor] = currentIndex
+            saveValue("playlistIndices", indices)
+            
+            // Update GridView currentIndex
+            videoGridView.currentIndex = currentIndex
+        }
+        
+        // Trigger refresh
+        playlistVersion++
+        var currentMonitor = selectedMonitor
+        selectedMonitor = ""
+        selectedMonitor = currentMonitor
+    }
+    
+    function deleteThumbnailCache(videoPath) {
+        const cacheHome = StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "")
+        const cacheDir = cacheHome + "/DankMaterialShell/mpvpaper_thumbnails"
+        
+        // Create hash from video path
+        const hash = videoPath.split('').reduce((a, b) => {
+            a = ((a << 5) - a) + b.charCodeAt(0)
+            return a & a
+        }, 0)
+        
+        const thumbPath = cacheDir + "/" + Math.abs(hash) + "_thumb.jpg"
+        const previewPath = cacheDir + "/" + Math.abs(hash) + "_preview.jpg"
+        
+        // Delete both thumbnail files
+        thumbnailDeleteProcess.command = ["bash", "-c", `rm -f "${thumbPath}" "${previewPath}"`]
+        thumbnailDeleteProcess.running = true
+    }
+    
+    Process {
+        id: thumbnailDeleteProcess
+        command: []
+    }
+
+    function clearPlaylist() {
+        var playlists = loadValue("monitorPlaylists", {})
+        delete playlists[selectedMonitor]
+        saveValue("monitorPlaylists", playlists)
+        
+        var monitorVideos = loadValue("monitorVideos", {})
+        delete monitorVideos[selectedMonitor]
+        saveValue("monitorVideos", monitorVideos)
+        
+        playlistVersion++
+        var currentMonitor = selectedMonitor
+        selectedMonitor = ""
+        selectedMonitor = currentMonitor
+    }
+
+    function getVideoSettings() {
+        var videoPath = getCurrentVideoPath()
+        if (!videoPath) return {}
+
+        var allSettings = loadValue("videoSettings", {})
+        return allSettings[videoPath] || {}
+    }
+
+    function getVideoSetting(key, defaultValue) {
+        var settings = getVideoSettings()
+        return settings[key] !== undefined ? settings[key] : defaultValue
+    }
+
+    function saveVideoSetting(key, value) {
+        var videoPath = getCurrentVideoPath()
+        if (!videoPath) return
+
+        var allSettings = loadValue("videoSettings", {})
+        if (!allSettings[videoPath]) {
+            allSettings[videoPath] = {}
+        }
+        allSettings[videoPath][key] = value
+        saveValue("videoSettings", allSettings)
+    }
+
+    Item {
+        id: modalMount
+        width: 0
+        height: 0
+        visible: false
+
+        VideoBrowserModal {
+            id: videoBrowser
+
+            onVideoSelected: (videoPath) => {
+                root.addToPlaylist(videoPath)
+            }
+        }
+    }
+}

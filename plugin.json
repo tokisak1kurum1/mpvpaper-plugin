@@ -1,0 +1,15 @@
+{
+    "id": "mpvpaper",
+    "name": "MPV Paper",
+    "description": "Video wallpaper support using mpvpaper with local video files",
+    "version": "1.0.0",
+    "author": "weijie",
+    "type": "daemon",
+    "component": "./MpvPaperDaemon.qml",
+    "settings": "./MpvPaperSettings.qml",
+    "permissions": [
+        "settings_read",
+        "settings_write",
+        "process"
+    ]
+}
