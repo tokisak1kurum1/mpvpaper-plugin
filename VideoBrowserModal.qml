@@ -362,7 +362,7 @@ DankModal {
                                     Image {
                                         id: thumbnail
                                         anchors.fill: parent
-                                        fillMode: Image.PreserveAspectFit
+                                        fillMode: Image.PreserveAspectCrop
                                         visible: !modelData.isDirectory && status === Image.Ready
                                         asynchronous: true
                                         cache: true
@@ -407,12 +407,12 @@ DankModal {
                                                     // Thumbnail exists, use it
                                                     thumbnail.source = "file://" + thumbnailPath
                                                 } else {
-                                                    // Generate thumbnail - 16:9 at 320x180
+                                                    // Generate thumbnail - 16:9 at 320x180 with cover crop
                                                     thumbnailGenProcess.thumbnailPath = thumbnailPath
                                                     thumbnailGenProcess.videoPath = videoPath
                                                     thumbnailGenProcess.cacheDir = cacheDir
                                                     thumbnailGenProcess.command = ["bash", "-c",
-                                                        `mkdir -p "${cacheDir}" && ffmpeg -i "${videoPath}" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2" -q:v 3 "${thumbnailPath}" -y 2>/dev/null`
+                                                        `mkdir -p "${cacheDir}" && ffmpeg -i "${videoPath}" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "${thumbnailPath}" -y 2>/dev/null`
                                                     ]
                                                     thumbnailGenProcess.running = true
                                                 }

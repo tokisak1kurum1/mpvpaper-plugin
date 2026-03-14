@@ -82,56 +82,13 @@ PluginSettings {
         height: Theme.spacingM
     }
 
-    StyledText {
-        text: {
-            currentVideoRefresh
-            const playlist = getPlaylist()
-            if (playlist.length > 0) {
-                return "视频列表（" + playlist.length + " 个视频）"
-            }
-            return "视频列表（无视频）"
-        }
-        font.pixelSize: Theme.fontSizeMedium
-        font.weight: Font.Medium
-        wrapMode: Text.Wrap
-    }
-
-    StyledText {
-        text: "添加视频到列表，然后选择播放模式"
-        font.pixelSize: Theme.fontSizeSmall
-        opacity: 0.7
-        wrapMode: Text.Wrap
-    }
-
-    Row {
-        width: parent.width
-        spacing: Theme.spacingM
-
-        DankButton {
-            text: "添加视频"
-            width: (parent.width - Theme.spacingM) / 2
-            onClicked: {
-                openSystemFilePicker()
-            }
-        }
-
-        DankButton {
-            text: "清空列表"
-            width: (parent.width - Theme.spacingM) / 2
-            enabled: getPlaylist().length > 0
-            onClicked: {
-                clearPlaylist()
-            }
-        }
-    }
-
-    // Grid layout for video thumbnails
+    // Grid layout for video thumbnails (Moved back above buttons)
     GridView {
         id: videoGridView
         width: parent.width
         cellWidth: width / 3  // 3 columns
         cellHeight: cellWidth * 9 / 16  // 16:9 ratio
-        height: Math.ceil(getPlaylist().length / 3) * cellHeight
+        height: Math.max(cellHeight, Math.ceil(getPlaylist().length / 3) * cellHeight)
         clip: true
         interactive: false
         highlightFollowsCurrentItem: true
@@ -273,7 +230,7 @@ PluginSettings {
                                 playlistThumbGenProcess.videoPath = videoPath
                                 playlistThumbGenProcess.cacheDir = cacheDir
                                 playlistThumbGenProcess.command = ["bash", "-c",
-                                    `mkdir -p "${cacheDir}" && ffmpeg -i "${videoPath}" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2" -q:v 3 "${thumbnailPath}" -y 2>/dev/null`
+                                    `mkdir -p "${cacheDir}" && ffmpeg -i "${videoPath}" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "${thumbnailPath}" -y 2>/dev/null`
                                 ]
                                 playlistThumbGenProcess.running = true
                             }
@@ -353,6 +310,57 @@ PluginSettings {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    StyledText {
+        text: {
+            currentVideoRefresh
+            const playlist = getPlaylist()
+            if (playlist.length > 0) {
+                return "视频列表（" + playlist.length + " 个视频）"
+            }
+            return "视频列表（无视频）"
+        }
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.Medium
+        wrapMode: Text.Wrap
+    }
+
+    StyledText {
+        text: "添加视频到列表，然后选择播放模式"
+        font.pixelSize: Theme.fontSizeSmall
+        opacity: 0.7
+        wrapMode: Text.Wrap
+    }
+
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+
+        DankButton {
+            text: "添加视频"
+            width: (parent.width - Theme.spacingM * 2) / 3
+            onClicked: {
+                openSystemFilePicker()
+            }
+        }
+
+        DankButton {
+            text: "添加文件夹"
+            width: (parent.width - Theme.spacingM * 2) / 3
+            onClicked: {
+                openSystemDirectoryPicker()
+            }
+        }
+
+        DankButton {
+            text: "清空列表"
+            width: (parent.width - Theme.spacingM * 2) / 3
+            enabled: getPlaylist().length > 0
+            onClicked: {
+                clearPlaylist()
             }
         }
     }
@@ -589,6 +597,7 @@ PluginSettings {
     }
 
     function openSystemFilePicker() {
+        systemFilePickerProcess.selectedFile = ""
         systemFilePickerProcess.running = true
     }
 
@@ -599,9 +608,9 @@ PluginSettings {
         // Try zenity first (GNOME), fallback to kdialog (KDE)
         command: ["bash", "-c",
             `if command -v zenity >/dev/null 2>&1; then
-                zenity --file-selection --title="选择视频文件" --file-filter="视频文件 | *.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v" --file-filter="所有文件 | *"
+                zenity --file-selection --multiple --separator=$'\n' --title="选择视频文件" --file-filter="视频文件 | *.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v" --file-filter="所有文件 | *"
             elif command -v kdialog >/dev/null 2>&1; then
-                kdialog --getopenfilename ~ "*.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v|视频文件"
+                kdialog --getopenfilename ~ "*.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v|视频文件" --multiple --separate-output
             else
                 echo "ERROR: No file picker available"
                 exit 1
@@ -610,17 +619,23 @@ PluginSettings {
 
         stdout: SplitParser {
             onRead: (data) => {
-                systemFilePickerProcess.selectedFile += data
+                systemFilePickerProcess.selectedFile += data + "\n"
             }
         }
 
         onExited: (code) => {
-            const trimmedFile = selectedFile.trim()
-            if (code === 0 && trimmedFile !== "") {
-                // User selected a file
-                addToPlaylist(trimmedFile)
-                ToastService.showInfo("视频已添加", trimmedFile.substring(trimmedFile.lastIndexOf('/') + 1))
-            } else if (trimmedFile.includes("ERROR")) {
+            const trimmedOutput = selectedFile.trim()
+            if (code === 0 && trimmedOutput !== "") {
+                const files = trimmedOutput.split('\n').map(f => f.trim()).filter(f => f !== "")
+                if (files.length > 0) {
+                    addMultipleToPlaylist(files)
+                    if (files.length === 1) {
+                        ToastService.showInfo("视频已添加", files[0].substring(files[0].lastIndexOf('/') + 1))
+                    } else {
+                        ToastService.showInfo("视频已添加", "成功添加 " + files.length + " 个视频")
+                    }
+                }
+            } else if (trimmedOutput.includes("ERROR")) {
                 // No file picker available, use custom browser
                 console.log("MpvPaper: System file picker not available, using custom browser")
                 const currentPath = getCurrentVideoPath()
@@ -628,46 +643,113 @@ PluginSettings {
                 videoBrowser.initialDirectory = initialDir
                 videoBrowser.open()
             }
-            // If code !== 0 and no ERROR message, user cancelled - do nothing
             selectedFile = ""
         }
     }
 
-    function getCurrentVideoPath() {
-        var monitorVideos = loadValue("monitorVideos", {})
-        return monitorVideos[selectedMonitor] || ""
+    function openSystemDirectoryPicker() {
+        systemDirectoryPickerProcess.selectedDir = ""
+        systemDirectoryPickerProcess.running = true
     }
 
-    function getPlaylist() {
-        var playlists = loadValue("monitorPlaylists", {})
-        var list = playlists[selectedMonitor]
-        return Array.isArray(list) ? list : []
+    Process {
+        id: systemDirectoryPickerProcess
+        property string selectedDir: ""
+
+        command: ["bash", "-c",
+            `if command -v zenity >/dev/null 2>&1; then
+                zenity --file-selection --directory --title="选择视频文件夹"
+            elif command -v kdialog >/dev/null 2>&1; then
+                kdialog --getexistingdirectory ~
+            else
+                echo "ERROR: No file picker available"
+                exit 1
+            fi`
+        ]
+
+        stdout: SplitParser {
+            onRead: (data) => {
+                systemDirectoryPickerProcess.selectedDir += data
+            }
+        }
+
+        onExited: (code) => {
+            const trimmedDir = selectedDir.trim()
+            if (code === 0 && trimmedDir !== "") {
+                scanAndAddFolder(trimmedDir)
+            }
+            selectedDir = ""
+        }
     }
 
-    function addToPlaylist(videoPath) {
+    function scanAndAddFolder(dirPath) {
+        folderScanProcess.scanOutput = ""
+        folderScanProcess.command = ["bash", "-c",
+            `find "${dirPath}" -type f -regextype posix-extended -regex ".*\\.(mp4|mkv|webm|avi|mov|flv|wmv|m4v|MP4|MKV|WEBM|AVI|MOV|FLV|WMV|M4V)" | sort`
+        ]
+        folderScanProcess.running = true
+    }
+
+    Process {
+        id: folderScanProcess
+        property string scanOutput: ""
+        stdout: SplitParser {
+            onRead: (data) => {
+                folderScanProcess.scanOutput += data + "\n"
+            }
+        }
+        onExited: (code) => {
+            if (code === 0 && scanOutput.trim() !== "") {
+                const files = scanOutput.trim().split('\n').filter(f => f.trim() !== "")
+                if (files.length > 0) {
+                    addMultipleToPlaylist(files)
+                    ToastService.showInfo("文件夹已添加", "从目录中添加了 " + files.length + " 个视频")
+                } else {
+                    ToastService.showWarning("未找到视频", "所选文件夹中没有支持的视频文件")
+                }
+            }
+            scanOutput = ""
+        }
+    }
+
+    function addMultipleToPlaylist(videoPaths) {
+        if (!videoPaths || videoPaths.length === 0) return
+        
         var playlists = loadValue("monitorPlaylists", {})
         if (!playlists[selectedMonitor]) {
             playlists[selectedMonitor] = []
         }
         
-        // Check if video already exists in playlist
-        if (playlists[selectedMonitor].indexOf(videoPath) !== -1) {
-            ToastService.showWarning("视频已存在", "该视频已在列表中")
-            return
+        let addedCount = 0
+        let lastAdded = ""
+        
+        for (const path of videoPaths) {
+            const trimmedPath = path.trim()
+            if (trimmedPath && playlists[selectedMonitor].indexOf(trimmedPath) === -1) {
+                playlists[selectedMonitor].push(trimmedPath)
+                addedCount++
+                lastAdded = trimmedPath
+            }
         }
         
-        playlists[selectedMonitor].push(videoPath)
-        saveValue("monitorPlaylists", playlists)
-        
-        // Set as current video
-        var monitorVideos = loadValue("monitorVideos", {})
-        monitorVideos[selectedMonitor] = videoPath
-        saveValue("monitorVideos", monitorVideos)
-        
-        playlistVersion++
-        var currentMonitor = selectedMonitor
-        selectedMonitor = ""
-        selectedMonitor = currentMonitor
+        if (addedCount > 0) {
+            saveValue("monitorPlaylists", playlists)
+            
+            // Set the last added video as current
+            var monitorVideos = loadValue("monitorVideos", {})
+            monitorVideos[selectedMonitor] = lastAdded
+            saveValue("monitorVideos", monitorVideos)
+            
+            playlistVersion++
+            // Trigger UI refresh
+            var currentMonitor = selectedMonitor
+            selectedMonitor = ""
+            selectedMonitor = currentMonitor
+        }
+    }
+
+    function addToPlaylist(videoPath) {
+        addMultipleToPlaylist([videoPath])
     }
 
     function setCurrentVideo(videoPath) {
@@ -824,6 +906,17 @@ PluginSettings {
         }
         allSettings[videoPath][key] = value
         saveValue("videoSettings", allSettings)
+    }
+
+    function getCurrentVideoPath() {
+        var monitorVideos = loadValue("monitorVideos", {})
+        return monitorVideos[selectedMonitor] || ""
+    }
+
+    function getPlaylist() {
+        var playlists = loadValue("monitorPlaylists", {})
+        var list = playlists[selectedMonitor]
+        return Array.isArray(list) ? list : []
     }
 
     Item {
