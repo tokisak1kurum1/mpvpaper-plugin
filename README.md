@@ -12,7 +12,7 @@ This is a desktop video wallpaper plugin built for DMS, based on mpvpaper.
 
 ## System Dependencies
 **Required**: This plugin requires `mpvpaper` to be installed on your system.
-* Arch Linux: `sudo pacman -S mpvpaper`
+* Arch Linux (AUR): `yay -S mpvpaper`
 
 ## Usage
 After installation, go directly to "System Settings -> MpvPaper Plugin" to manage the video library, adjust volume, and set the tiling mode.
