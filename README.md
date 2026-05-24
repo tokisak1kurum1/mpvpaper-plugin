@@ -1,5 +1,7 @@
 # MpvPaper Plugin
 
+![Screenshot](screenshot.png)
+
 This is a desktop video wallpaper plugin built for DMS, based on mpvpaper.
 
 ## Core Features
