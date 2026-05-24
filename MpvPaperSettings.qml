@@ -34,13 +34,13 @@ PluginSettings {
     }
 
     StyledText {
-        text: "MPV 壁纸"
+        text: I18n.tr("MpvPaper Plugin", "mpvpaper")
         font.pixelSize: Theme.fontSizeLarge
         font.weight: Font.Bold
     }
 
     StyledText {
-        text: "使用 mpvpaper 的视频壁纸"
+        text: I18n.tr("Video wallpaper using mpvpaper", "mpvpaper")
         font.pixelSize: Theme.fontSizeMedium
         opacity: 0.7
         wrapMode: Text.Wrap
@@ -57,7 +57,7 @@ PluginSettings {
         spacing: Theme.spacingM
 
         StyledText {
-            text: "显示器"
+            text: I18n.tr("Monitor", "mpvpaper")
             font.pixelSize: Theme.fontSizeMedium
             font.weight: Font.Medium
             width: 180
@@ -67,7 +67,7 @@ PluginSettings {
         DankDropdown {
             width: parent.width - 180 - Theme.spacingM
             options: root.monitors
-            currentValue: root.selectedMonitor || "无显示器"
+            currentValue: root.selectedMonitor || I18n.tr("No Monitors", "mpvpaper")
             enabled: root.monitors.length > 1
             compactMode: true
 
@@ -319,9 +319,9 @@ PluginSettings {
             currentVideoRefresh
             const playlist = getPlaylist()
             if (playlist.length > 0) {
-                return "视频列表（" + playlist.length + " 个视频）"
+                return I18n.tr("Video List (%1 videos)", "mpvpaper").arg(playlist.length)
             }
-            return "视频列表（无视频）"
+            return I18n.tr("Video List (Empty)", "mpvpaper")
         }
         font.pixelSize: Theme.fontSizeMedium
         font.weight: Font.Medium
@@ -329,7 +329,7 @@ PluginSettings {
     }
 
     StyledText {
-        text: "添加视频到列表，然后选择播放模式"
+        text: I18n.tr("Add videos to the list and select a playback mode", "mpvpaper")
         font.pixelSize: Theme.fontSizeSmall
         opacity: 0.7
         wrapMode: Text.Wrap
@@ -340,7 +340,7 @@ PluginSettings {
         spacing: Theme.spacingM
 
         DankButton {
-            text: "添加视频"
+            text: I18n.tr("Add Video", "mpvpaper")
             width: (parent.width - Theme.spacingM * 2) / 3
             onClicked: {
                 openSystemFilePicker()
@@ -348,7 +348,7 @@ PluginSettings {
         }
 
         DankButton {
-            text: "添加文件夹"
+            text: I18n.tr("Add Folder", "mpvpaper")
             width: (parent.width - Theme.spacingM * 2) / 3
             onClicked: {
                 openSystemDirectoryPicker()
@@ -356,7 +356,7 @@ PluginSettings {
         }
 
         DankButton {
-            text: "清空列表"
+            text: I18n.tr("Clear List", "mpvpaper")
             width: (parent.width - Theme.spacingM * 2) / 3
             enabled: getPlaylist().length > 0
             onClicked: {
@@ -372,7 +372,7 @@ PluginSettings {
     }
 
     StyledText {
-        text: "视频设置"
+        text: I18n.tr("Video Settings", "mpvpaper")
         font.pixelSize: Theme.fontSizeMedium
         font.weight: Font.Medium
     }
@@ -387,7 +387,7 @@ PluginSettings {
             spacing: Theme.spacingM
 
             StyledText {
-                text: "硬件解码"
+                text: I18n.tr("Hardware Decoding", "mpvpaper")
                 font.pixelSize: Theme.fontSizeSmall
                 width: 180
                 anchors.verticalCenter: parent.verticalCenter
@@ -411,7 +411,7 @@ PluginSettings {
             }
         }
         StyledText {
-            text: "视频解码的硬件加速方法"
+            text: I18n.tr("Hardware acceleration method for video decoding", "mpvpaper")
             font.pixelSize: Theme.fontSizeSmall * 0.9
             opacity: 0.5
             width: parent.width
@@ -427,7 +427,7 @@ PluginSettings {
             width: parent.width
             spacing: Theme.spacingM
             StyledText {
-                text: "平铺模式"
+                text: I18n.tr("Tiling Mode", "mpvpaper")
                 font.pixelSize: Theme.fontSizeSmall
                 width: 180
                 anchors.verticalCenter: parent.verticalCenter
@@ -435,7 +435,7 @@ PluginSettings {
             DankDropdown {
                 id: panscanDropdown
                 width: parent.width - 180 - Theme.spacingM
-                options: ["填充屏幕（裁剪）", "适应屏幕（黑边）", "拉伸填充"]
+                options: [I18n.tr("Fill Screen (Crop)", "mpvpaper"), I18n.tr("Fit Screen (Letterbox)", "mpvpaper"), I18n.tr("Stretch Fill", "mpvpaper")]
                 compactMode: true
 
                 Binding {
@@ -443,16 +443,16 @@ PluginSettings {
                     property: "currentValue"
                     value: {
                         const panscan = getVideoSetting("panscan", 1.0)
-                        if (panscan === 1.0) return "填充屏幕（裁剪）"
-                        if (panscan === 0.0) return "适应屏幕（黑边）"
-                        return "拉伸填充"
+                        if (panscan === 1.0) return I18n.tr("Fill Screen (Crop)", "mpvpaper")
+                        if (panscan === 0.0) return I18n.tr("Fit Screen (Letterbox)", "mpvpaper")
+                        return I18n.tr("Stretch Fill", "mpvpaper")
                     }
                 }
 
                 onValueChanged: (value) => {
-                    if (value === "填充屏幕（裁剪）") {
+                    if (value === I18n.tr("Fill Screen (Crop)", "mpvpaper")) {
                         saveVideoSetting("panscan", 1.0)
-                    } else if (value === "适应屏幕（黑边）") {
+                    } else if (value === I18n.tr("Fit Screen (Letterbox)", "mpvpaper")) {
                         saveVideoSetting("panscan", 0.0)
                     } else {
                         saveVideoSetting("panscan", 0.5)
@@ -461,7 +461,7 @@ PluginSettings {
             }
         }
         StyledText {
-            text: "选择视频如何适应屏幕尺寸"
+            text: I18n.tr("Choose how the video fits the screen size", "mpvpaper")
             font.pixelSize: Theme.fontSizeSmall * 0.9
             opacity: 0.5
             width: parent.width
@@ -489,7 +489,7 @@ PluginSettings {
             spacing: Theme.spacingM
 
             StyledText {
-                text: "音量"
+                text: I18n.tr("Volume", "mpvpaper")
                 font.pixelSize: Theme.fontSizeSmall
                 width: 180
                 anchors.verticalCenter: parent.verticalCenter
@@ -523,7 +523,7 @@ PluginSettings {
             }
         }
         StyledText {
-            text: "音频音量（0 = 静音）"
+            text: I18n.tr("Audio volume (0 = Mute)", "mpvpaper")
             font.pixelSize: Theme.fontSizeSmall * 0.9
             opacity: 0.5
             width: parent.width
@@ -545,7 +545,7 @@ PluginSettings {
             width: parent.width
             spacing: Theme.spacingM
             StyledText {
-                text: "定时重启间隔"
+                text: I18n.tr("Scheduled Restart Interval", "mpvpaper")
                 font.pixelSize: Theme.fontSizeSmall
                 width: 180
                 anchors.verticalCenter: parent.verticalCenter
@@ -553,7 +553,7 @@ PluginSettings {
             DankDropdown {
                 id: restartIntervalDropdown
                 width: parent.width - 180 - Theme.spacingM
-                options: ["禁用", "10 分钟", "30 分钟", "1 小时", "2 小时"]
+                options: [I18n.tr("Disabled", "mpvpaper"), I18n.tr("10 Minutes", "mpvpaper"), I18n.tr("30 Minutes", "mpvpaper"), I18n.tr("1 Hour", "mpvpaper"), I18n.tr("2 Hours", "mpvpaper")]
                 compactMode: true
 
                 Binding {
@@ -561,28 +561,28 @@ PluginSettings {
                     property: "currentValue"
                     value: {
                         const interval = loadValue("restartInterval", 60)
-                        if (interval === 0) return "禁用"
-                        if (interval === 10) return "10 分钟"
-                        if (interval === 30) return "30 分钟"
-                        if (interval === 60) return "1 小时"
-                        if (interval === 120) return "2 小时"
-                        return "1 小时"
+                        if (interval === 0) return I18n.tr("Disabled", "mpvpaper")
+                        if (interval === 10) return I18n.tr("10 Minutes", "mpvpaper")
+                        if (interval === 30) return I18n.tr("30 Minutes", "mpvpaper")
+                        if (interval === 60) return I18n.tr("1 Hour", "mpvpaper")
+                        if (interval === 120) return I18n.tr("2 Hours", "mpvpaper")
+                        return I18n.tr("1 Hour", "mpvpaper")
                     }
                 }
 
                 onValueChanged: (value) => {
                     let interval = 60
-                    if (value === "禁用") interval = 0
-                    else if (value === "10 分钟") interval = 10
-                    else if (value === "30 分钟") interval = 30
-                    else if (value === "1 小时") interval = 60
-                    else if (value === "2 小时") interval = 120
+                    if (value === I18n.tr("Disabled", "mpvpaper")) interval = 0
+                    else if (value === I18n.tr("10 Minutes", "mpvpaper")) interval = 10
+                    else if (value === I18n.tr("30 Minutes", "mpvpaper")) interval = 30
+                    else if (value === I18n.tr("1 Hour", "mpvpaper")) interval = 60
+                    else if (value === I18n.tr("2 Hours", "mpvpaper")) interval = 120
                     saveValue("restartInterval", interval)
                 }
             }
         }
         StyledText {
-            text: "定期重启 mpv 进程以防止潜在的内存泄漏"
+            text: I18n.tr("Periodically restart mpv process to prevent potential memory leaks", "mpvpaper")
             font.pixelSize: Theme.fontSizeSmall * 0.9
             opacity: 0.5
             width: parent.width
@@ -608,9 +608,9 @@ PluginSettings {
         // Try zenity first (GNOME), fallback to kdialog (KDE)
         command: ["bash", "-c",
             `if command -v zenity >/dev/null 2>&1; then
-                zenity --file-selection --multiple --separator=$'\n' --title="选择视频文件" --file-filter="视频文件 | *.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v" --file-filter="所有文件 | *"
+                zenity --file-selection --multiple --separator=$'\n' --title="${I18n.tr("Select Video Files", "mpvpaper")}" --file-filter="${I18n.tr("Video Files", "mpvpaper")} | *.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v" --file-filter="${I18n.tr("All Files", "mpvpaper")} | *"
             elif command -v kdialog >/dev/null 2>&1; then
-                kdialog --getopenfilename ~ "*.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v|视频文件" --multiple --separate-output
+                kdialog --getopenfilename ~ "*.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v|${I18n.tr("Video Files", "mpvpaper")}" --multiple --separate-output
             else
                 echo "ERROR: No file picker available"
                 exit 1
@@ -630,9 +630,9 @@ PluginSettings {
                 if (files.length > 0) {
                     addMultipleToPlaylist(files)
                     if (files.length === 1) {
-                        ToastService.showInfo("视频已添加", files[0].substring(files[0].lastIndexOf('/') + 1))
+                        ToastService.showInfo(I18n.tr("Video Added", "mpvpaper"), files[0].substring(files[0].lastIndexOf('/') + 1))
                     } else {
-                        ToastService.showInfo("视频已添加", "成功添加 " + files.length + " 个视频")
+                        ToastService.showInfo(I18n.tr("Video Added", "mpvpaper"), I18n.tr("Successfully added %1 videos", "mpvpaper").arg(files.length))
                     }
                 }
             } else if (trimmedOutput.includes("ERROR")) {
@@ -658,7 +658,7 @@ PluginSettings {
 
         command: ["bash", "-c",
             `if command -v zenity >/dev/null 2>&1; then
-                zenity --file-selection --directory --title="选择视频文件夹"
+                zenity --file-selection --directory --title="${I18n.tr("Select Video Folder", "mpvpaper")}"
             elif command -v kdialog >/dev/null 2>&1; then
                 kdialog --getexistingdirectory ~
             else
@@ -703,9 +703,9 @@ PluginSettings {
                 const files = scanOutput.trim().split('\n').filter(f => f.trim() !== "")
                 if (files.length > 0) {
                     addMultipleToPlaylist(files)
-                    ToastService.showInfo("文件夹已添加", "从目录中添加了 " + files.length + " 个视频")
+                    ToastService.showInfo(I18n.tr("Folder Added", "mpvpaper"), I18n.tr("Added %1 videos from directory", "mpvpaper").arg(files.length))
                 } else {
-                    ToastService.showWarning("未找到视频", "所选文件夹中没有支持的视频文件")
+                    ToastService.showWarning(I18n.tr("No Videos Found", "mpvpaper"), I18n.tr("No supported video files found in selected folder", "mpvpaper"))
                 }
             }
             scanOutput = ""

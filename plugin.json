@@ -1,7 +1,7 @@
 {
     "id": "mpvpaper",
-    "name": "MPV Paper",
-    "description": "Video wallpaper support using mpvpaper with local video files",
+    "name": "MpvPaper Plugin",
+    "description": "Play videos as desktop wallpapers with multi-monitor support and playlist management.",
     "version": "1.0.0",
     "author": "weijie",
     "type": "daemon",

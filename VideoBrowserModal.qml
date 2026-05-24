@@ -62,7 +62,7 @@ DankModal {
                 }
 
                 StyledText {
-                    text: addToPlaylistMode ? "选择视频添加到播放列表" : "选择视频"
+                    text: addToPlaylistMode ? I18n.tr("Select Video to Add to Playlist", "mpvpaper") : I18n.tr("Select Video", "mpvpaper")
                     font.pixelSize: Theme.fontSizeLarge
                     font.weight: Font.Bold
                     anchors.verticalCenter: parent.verticalCenter
@@ -73,7 +73,7 @@ DankModal {
                 anchors.right: parent.right
                 anchors.rightMargin: Theme.spacingL
                 anchors.verticalCenter: parent.verticalCenter
-                text: "关闭"
+                text: I18n.tr("Close", "mpvpaper")
                 onClicked: root.close()
             }
         }
@@ -101,7 +101,7 @@ DankModal {
                         spacing: Theme.spacingS
 
                         DankButton {
-                            text: "返回"
+                            text: I18n.tr("Back", "mpvpaper")
                             enabled: pathHistory.length > 1
                             anchors.verticalCenter: parent.verticalCenter
                             onClicked: {
@@ -114,7 +114,7 @@ DankModal {
                         }
 
                         DankButton {
-                            text: "主目录"
+                            text: I18n.tr("Home", "mpvpaper")
                             anchors.verticalCenter: parent.verticalCenter
                             onClicked: {
                                 const homeDir = StandardPaths.writableLocation(StandardPaths.HomeLocation).toString().replace("file://", "")
@@ -123,7 +123,7 @@ DankModal {
                         }
 
                         DankButton {
-                            text: "视频"
+                            text: I18n.tr("Videos", "mpvpaper")
                             anchors.verticalCenter: parent.verticalCenter
                             onClicked: {
                                 const videosDir = StandardPaths.writableLocation(StandardPaths.MoviesLocation).toString().replace("file://", "")
@@ -132,7 +132,7 @@ DankModal {
                         }
 
                         DankButton {
-                            text: "下载"
+                            text: I18n.tr("Downloads", "mpvpaper")
                             anchors.verticalCenter: parent.verticalCenter
                             onClicked: {
                                 const downloadsDir = StandardPaths.writableLocation(StandardPaths.DownloadLocation).toString().replace("file://", "")
@@ -164,7 +164,7 @@ DankModal {
                             id: addressBar
                             width: parent.width - 20 - goButton.width - Theme.spacingM * 3
                             text: root.currentDirectory
-                            placeholderText: "输入路径..."
+                            placeholderText: I18n.tr("Enter path...", "mpvpaper")
                             anchors.verticalCenter: parent.verticalCenter
                             onAccepted: {
                                 if (text.trim() !== "") {
@@ -175,7 +175,7 @@ DankModal {
 
                         DankButton {
                             id: goButton
-                            text: "前往"
+                            text: I18n.tr("Go", "mpvpaper")
                             anchors.verticalCenter: parent.verticalCenter
                             enabled: addressBar.text.trim() !== "" && addressBar.text !== root.currentDirectory
                             onClicked: {
@@ -210,7 +210,7 @@ DankModal {
                             Repeater {
                                 model: {
                                     const parts = root.currentDirectory.split('/').filter(p => p !== '')
-                                    const result = [{ name: "根目录", path: "/" }]
+                                    const result = [{ name: I18n.tr("Root", "mpvpaper"), path: "/" }]
                                     let currentPath = ""
                                     for (const part of parts) {
                                         currentPath += "/" + part
@@ -278,7 +278,7 @@ DankModal {
                         DankTextField {
                             id: searchField
                             width: parent.width - refreshButton.width - Theme.spacingM
-                            placeholderText: "搜索当前目录..."
+                            placeholderText: I18n.tr("Search current directory...", "mpvpaper")
                             text: root.searchText
                             anchors.verticalCenter: parent.verticalCenter
                             onTextChanged: {
@@ -289,7 +289,7 @@ DankModal {
 
                         DankButton {
                             id: refreshButton
-                            text: "刷新"
+                            text: I18n.tr("Refresh", "mpvpaper")
                             anchors.verticalCenter: parent.verticalCenter
                             onClicked: scanDirectory()
                         }
@@ -308,7 +308,7 @@ DankModal {
                         anchors.verticalCenter: parent.verticalCenter
                         text: {
                             const folderCount = filteredItems.count - videoCount
-                            return folderCount + " 个文件夹，" + videoCount + " 个视频"
+                            return I18n.tr("%1 folders, %2 videos", "mpvpaper").arg(folderCount).arg(videoCount)
                         }
                         font.pixelSize: Theme.fontSizeSmall
                         opacity: 0.7
@@ -458,7 +458,7 @@ DankModal {
 
                                     StyledText {
                                         width: parent.width
-                                        text: modelData.isDirectory ? "文件夹" : "视频文件"
+                                        text: modelData.isDirectory ? I18n.tr("Folder", "mpvpaper") : I18n.tr("Video File", "mpvpaper")
                                         font.pixelSize: Theme.fontSizeSmall
                                         opacity: 0.7
                                     }
@@ -485,7 +485,7 @@ DankModal {
 
                     StyledText {
                         anchors.centerIn: parent
-                        text: root.searchText ? "没有匹配的项目" : "此目录为空"
+                        text: root.searchText ? I18n.tr("No matching items", "mpvpaper") : I18n.tr("This directory is empty", "mpvpaper")
                         opacity: 0.7
                         visible: filteredItems.count === 0
                         wrapMode: Text.Wrap
@@ -578,7 +578,7 @@ DankModal {
                     if (trimmedLine.startsWith("DIR:")) {
                         const dirName = trimmedLine.substring(4)
                         if (dirName && dirName !== "." && dirName !== "..") {
-                            console.log("MpvPaper: Found directory:", dirName)
+                            // console.log("MpvPaper: Found directory:", dirName)
                             allItems.append({
                                 name: dirName,
                                 path: currentDirectory + "/" + dirName,
@@ -588,7 +588,7 @@ DankModal {
                     } else if (trimmedLine.startsWith("FILE:")) {
                         const fileName = trimmedLine.substring(5)
                         if (fileName) {
-                            console.log("MpvPaper: Found video:", fileName)
+                            // console.log("MpvPaper: Found video:", fileName)
                             allItems.append({
                                 name: fileName,
                                 path: currentDirectory + "/" + fileName,
@@ -599,7 +599,7 @@ DankModal {
                     }
                 }
                 
-                console.log("MpvPaper: Total items:", allItems.count, "Videos:", vCount)
+                // console.log("MpvPaper: Total items:", allItems.count, "Videos:", vCount)
                 videoCount = vCount
                 filterItems()
             } else {

@@ -5,6 +5,7 @@ import Quickshell.Io
 import qs.Common
 import qs.Services
 import qs.Modules.Plugins
+import "./translations.js" as Translations
 
 PluginComponent {
     id: root
@@ -374,7 +375,7 @@ PluginComponent {
             onExited: (code) => {
                 if (code !== 0) {
                     console.warn("MpvPaper: Process exited with code:", code, "for video", videoPath, "on", monitor)
-                    ToastService.showError("MpvPaper Error", "Video playback failed on " + monitor)
+                    ToastService.showError(I18n.tr("MpvPaper Error", "mpvpaper"), I18n.tr("Video playback failed on %1", "mpvpaper").arg(monitor))
                 }
             }
         }
@@ -427,6 +428,9 @@ PluginComponent {
     }
 
     Component.onCompleted: {
+        // Inject translations into global I18n singleton
+        Translations.inject(I18n)
+
         previousScreenNames = Quickshell.screens.map(screen => screen.name)
         console.info("MpvPaper Daemon: Starting...")
         
