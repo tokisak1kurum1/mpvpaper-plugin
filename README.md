@@ -15,5 +15,9 @@ This is a desktop video wallpaper plugin built for DMS, based on mpvpaper.
 ## Usage
 After installation, go directly to "System Settings -> MpvPaper Plugin" to manage the video library, adjust volume, and set the tiling mode.
 
+## 🚀 Companion Widget
+To quickly switch wallpapers without opening the settings menu, it is highly recommended to install the companion taskbar plugin:
+👉 **[MpvPaper Taskbar Widget](https://github.com/tokisak1kurum1/mpvpaper-taskbar-widget)**
+
 ## License
 MIT
