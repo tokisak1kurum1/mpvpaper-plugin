@@ -15,8 +15,6 @@ This is a desktop video wallpaper plugin built for DMS, based on mpvpaper.
 * Arch Linux: `sudo pacman -S ffmpeg`
 * Arch Linux (AUR): `yay -S mpvpaper`
 
-**Optional**: `zenity` or `kdialog` enables multi-file selection. Without either one, the plugin falls back to the DMS file browser.
-
 ## Usage
 After installation, go directly to "System Settings -> MpvPaper Plugin" to manage the video library, adjust volume, and set the tiling mode.
 
