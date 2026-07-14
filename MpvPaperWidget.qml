@@ -44,12 +44,25 @@ PluginComponent {
     }
 
     onRefreshTriggerChanged: {
+        selectionSyncTimer.restart()
+    }
+
+    onSelectedMonitorChanged: selectionSyncTimer.restart()
+
+    Timer {
+        id: selectionSyncTimer
+        interval: 0
+        repeat: false
+        onTriggered: root.syncSelectionToPlayback()
+    }
+
+    function syncSelectionToPlayback() {
         const currentPath = getCurrentVideoPath()
         const playlist = getPlaylist()
-        const startIndex = currentPage * itemsPerPage
-        const pagePlaylist = playlist.slice(startIndex, Math.min(startIndex + itemsPerPage, playlist.length))
-        const idx = pagePlaylist.indexOf(currentPath)
-        if (idx !== -1) gridIndex = idx
+        const index = playlist.indexOf(currentPath)
+        if (index < 0) return
+        currentPage = Math.floor(index / itemsPerPage)
+        gridIndex = index % itemsPerPage
     }
 
     function getPlaylist() {
@@ -59,8 +72,23 @@ PluginComponent {
         return Array.isArray(list) ? list : []
     }
 
+    function cycleMonitor(offset) {
+        if (monitors.length < 2) return
+        let index = monitors.indexOf(selectedMonitor)
+        if (index < 0) index = 0
+        selectedMonitor = monitors[(index + offset + monitors.length) % monitors.length]
+        selectionSyncTimer.restart()
+    }
+
     function getCurrentVideoPath() {
         if (!pluginService) return ""
+        const playlists = pluginService.loadPluginData("mpvpaper", "monitorPlaylists", {})
+        const playlist = playlists[selectedMonitor]
+        if (Array.isArray(playlist) && playlist.length > 0) {
+            const indices = pluginService.loadPluginData("mpvpaper", "playlistIndices", {})
+            const index = indices[selectedMonitor] ?? 0
+            if (index >= 0 && index < playlist.length) return playlist[index]
+        }
         const monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
         return monitorVideos[selectedMonitor] || ""
     }
@@ -161,12 +189,16 @@ PluginComponent {
     horizontalBarPill: Component { DankIcon { name: "movie"; size: root.iconSize; color: Theme.primary } }
     verticalBarPill: Component { DankIcon { name: "movie"; size: root.iconSize; color: Theme.primary } }
 
-    popoutContent: Component {
+    Component {
+        id: popoutBody
+
         PopoutComponent {
             id: popout
-            Component.onCompleted: root.fileBrowserParentPopout = popout
+            parentPopout: mpvPaperPopout
+            closePopout: function() { mpvPaperPopout.close() }
+            Component.onCompleted: root.fileBrowserParentPopout = mpvPaperPopout
             Component.onDestruction: {
-                if (root.fileBrowserParentPopout === popout)
+                if (root.fileBrowserParentPopout === mpvPaperPopout)
                     root.fileBrowserParentPopout = null
             }
             headerText: MpvPaperI18n.tr("Video Wallpaper", "mpvpaper")
@@ -178,9 +210,18 @@ PluginComponent {
             }
             showCloseButton: true
 
+            Connections {
+                target: popout.parentPopout
+                ignoreUnknownSignals: true
+                function onShouldBeVisibleChanged() {
+                    if (popout.parentPopout && popout.parentPopout.shouldBeVisible)
+                        selectionSyncTimer.restart()
+                }
+            }
+
             Item {
                 width: parent.width
-                implicitHeight: root.popoutHeight - popout.headerHeight - popout.detailsHeight - Theme.spacingXL
+                implicitHeight: root.popoutHeight - popout.headerHeight - popout.detailsHeight
 
                 Column {
                     anchors.fill: parent
@@ -201,19 +242,36 @@ PluginComponent {
                                 text: MpvPaperI18n.tr("Monitor", "mpvpaper")
                                 font.pixelSize: Theme.fontSizeSmall
                                 wrapMode: Text.NoWrap
-                                Layout.preferredWidth: 120
+                                Layout.minimumWidth: 128
+                                Layout.preferredWidth: 128
                                 Layout.alignment: Qt.AlignVCenter
                             }
 
-                            DankDropdown {
+                            Rectangle {
                                 Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignVCenter
-                                height: 40
-                                options: root.monitors
-                                currentValue: root.selectedMonitor || MpvPaperI18n.tr("No Monitors", "mpvpaper")
-                                compactMode: true
-                                transientSurfaceTracker: popout.parentPopout?.transientSurfaceTracker
-                                onValueChanged: (value) => { root.selectedMonitor = value; root.currentPage = 0; root.gridIndex = 0 }
+                                implicitHeight: 40
+                                radius: Theme.cornerRadius
+                                color: Theme.withAlpha(Theme.surfaceContainer, Theme.popupTransparency)
+                                border.width: 1
+                                border.color: Theme.outlineHeavy
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.spacingS
+                                    anchors.rightMargin: Theme.spacingS
+
+                                    DankActionButton { iconName: "chevron_left"; iconSize: 18; buttonSize: 30; onClicked: root.cycleMonitor(-1) }
+                                    StyledText {
+                                        Layout.fillWidth: true
+                                        text: root.selectedMonitor || MpvPaperI18n.tr("No Monitors", "mpvpaper")
+                                        font.pixelSize: Theme.fontSizeMedium
+                                        horizontalAlignment: Text.AlignHCenter
+                                        elide: Text.ElideRight
+                                        wrapMode: Text.NoWrap
+                                    }
+                                    DankActionButton { iconName: "chevron_right"; iconSize: 18; buttonSize: 30; onClicked: root.cycleMonitor(1) }
+                                }
                             }
                         }
                     }
@@ -235,10 +293,7 @@ PluginComponent {
                             cellHeight: gridContainer.cellHeight
                             clip: true
                             interactive: false
-                            highlightFollowsCurrentItem: true
-                            highlightMoveDuration: root.enableAnimation ? Theme.shortDuration : 0
                             currentIndex: root.gridIndex
-                            highlight: Item { z: 1000; Rectangle { anchors.fill: parent; anchors.margins: Theme.spacingXS; color: "transparent"; border.width: 3; border.color: Theme.primary; radius: Theme.cornerRadius } }
 
                             model: {
                                 root.refreshTrigger
@@ -261,12 +316,12 @@ PluginComponent {
                                     radius: Theme.cornerRadius; clip: true
 
                                     Rectangle {
-                                        anchors.fill: parent; radius: parent.radius; color: isSelected ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : "transparent"
+                                        anchors.fill: parent; radius: parent.radius; z: 9; color: isSelected ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : "transparent"
                                         Behavior on color { ColorAnimation { duration: Theme.shortDuration } }
                                     }
 
                                     Rectangle {
-                                        anchors.fill: parent; radius: parent.radius; color: "transparent"; border.width: isSelected ? 3 : 0; border.color: Theme.primary
+                                        anchors.fill: parent; radius: parent.radius; z: 10; color: "transparent"; border.width: isSelected ? 3 : 0; border.color: Theme.primary
                                         Behavior on border.width { NumberAnimation { duration: Theme.shortDuration } }
                                     }
 
@@ -322,6 +377,35 @@ PluginComponent {
 
             }
         }
+    }
+
+    DankPopout {
+        id: mpvPaperPopout
+        layerNamespace: "dms:plugins:mpvpaper"
+        popupWidth: root.popoutWidth
+        popupHeight: root.popoutHeight
+        content: popoutBody
+        onBackgroundClicked: close()
+    }
+
+    pillClickAction: function(x, y, width, section, screen) {
+        if (mpvPaperPopout.shouldBeVisible) {
+            mpvPaperPopout.close()
+            return
+        }
+
+        const barPosition = root.axis?.edge === "left" ? 2
+            : (root.axis?.edge === "right" ? 3
+            : (root.axis?.edge === "top" ? 0 : 1))
+        mpvPaperPopout.setTriggerPosition(
+            x, y, width, section, screen, barPosition,
+            root.barThickness, root.barSpacing, root.barConfig
+        )
+        mpvPaperPopout.primeContent()
+        Qt.callLater(() => {
+            root.syncSelectionToPlayback()
+            mpvPaperPopout.open()
+        })
     }
 
     popoutWidth: 600
