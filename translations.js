@@ -7,7 +7,6 @@ const translations = {
     "zh_CN": {
         "mpvpaper": {
             "MpvPaper Plugin": "MpvPaper 插件",
-            "MpvPaper Taskbar Widget": "MpvPaper 任务栏插件",
             "MPV Wallpaper": "MpvPaper 插件",
             "Video wallpaper using mpvpaper": "本插件基于 mpvpaper 提供底层的视频动态壁纸支持",
             "Monitor": "当前控制显示器",
@@ -66,15 +65,10 @@ const translations = {
             "No Wallpapers": "暂无壁纸",
             "%1 Wallpapers • Page %2/%3": "共 %1 个壁纸 • 第 %2/%3 页",
             "Page %1/%2": "第 %1/%2 页",
-            "Video Wallpaper Settings": "MpvPaper 任务栏插件设置",
-            "Please configure videos in the MPV Paper daemon settings page": "视频列表由主插件统一管理。请前往“MpvPaper 插件”设置页进行配置。",
             "MpvPaper Error": "播放器异常",
             "Video playback failed on %1": "显示器 %1 上的视频播放失败",
             "Play videos as desktop wallpapers with multi-monitor support and playlist management.": "高性能桌面视频壁纸插件，支持多显示器和播放列表管理。",
-            "A taskbar control panel to browse and switch wallpapers. Requires MpvPaper Plugin to be installed.": "状态栏控制面板，用于快速切换壁纸。需要先安装 MpvPaper 插件。"
-            ,"MpvPaper Plugin is not loaded": "MpvPaper 插件未加载"
-            ,"Install and enable MpvPaper Plugin before using this widget.": "请先安装并启用 MpvPaper 插件，然后再使用此小组件。"
-            ,"Language": "语言"
+            "Language": "语言"
             ,"Simplified Chinese": "简体中文"
             ,"English": "English"
         }

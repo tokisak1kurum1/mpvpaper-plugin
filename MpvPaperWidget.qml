@@ -30,10 +30,6 @@ PluginComponent {
     property int gridIndex: 0
     property bool enableAnimation: false
     property var fileBrowserParentPopout: null
-    readonly property bool coreAvailable: {
-        PluginService.loadedPlugins
-        return PluginService.isPluginLoaded("mpvpaper")
-    }
 
     Connections {
         target: pluginService
@@ -70,7 +66,7 @@ PluginComponent {
     }
 
     function setCurrentVideo(videoPath) {
-        if (!pluginService || !coreAvailable) return
+        if (!pluginService) return
         
         const playlists = pluginService.loadPluginData("mpvpaper", "monitorPlaylists", {})
         var playlist = playlists[selectedMonitor]
@@ -105,7 +101,7 @@ PluginComponent {
     }
 
     function addToPlaylist(videoPath) {
-        if (!pluginService || !coreAvailable) return
+        if (!pluginService) return
         const playlists = pluginService.loadPluginData("mpvpaper", "monitorPlaylists", {})
         if (!playlists[selectedMonitor]) playlists[selectedMonitor] = []
         if (playlists[selectedMonitor].indexOf(videoPath) !== -1) return
@@ -175,7 +171,6 @@ PluginComponent {
             }
             headerText: MpvPaperI18n.tr("Video Wallpaper", "mpvpaper")
             detailsText: {
-                if (!root.coreAvailable) return MpvPaperI18n.tr("MpvPaper Plugin is not loaded", "mpvpaper")
                 root.refreshTrigger
                 const playlist = root.getPlaylist()
                 if (playlist.length === 0) return MpvPaperI18n.tr("No Wallpapers", "mpvpaper")
@@ -190,20 +185,34 @@ PluginComponent {
                 Column {
                     anchors.fill: parent
                     spacing: Theme.spacingM
-                    visible: root.coreAvailable
 
                     // Monitor selector
                     Item {
                         width: parent.width
                         height: root.monitors.length > 1 ? 40 : 0
                         visible: root.monitors.length > 1
-                        Row {
-                            anchors.fill: parent; anchors.margins: Theme.spacingM
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.spacingS
+                            anchors.rightMargin: Theme.spacingS
                             spacing: Theme.spacingM
-                            StyledText { text: MpvPaperI18n.tr("Monitor", "mpvpaper"); font.pixelSize: Theme.fontSizeSmall; width: 60; anchors.verticalCenter: parent.verticalCenter }
+
+                            StyledText {
+                                text: MpvPaperI18n.tr("Monitor", "mpvpaper")
+                                font.pixelSize: Theme.fontSizeSmall
+                                wrapMode: Text.NoWrap
+                                Layout.preferredWidth: 120
+                                Layout.alignment: Qt.AlignVCenter
+                            }
+
                             DankDropdown {
-                                width: parent.width - 60 - Theme.spacingM * 2; height: 32; anchors.verticalCenter: parent.verticalCenter
-                                options: root.monitors; currentValue: root.selectedMonitor || MpvPaperI18n.tr("No Monitors", "mpvpaper"); compactMode: true
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignVCenter
+                                height: 40
+                                options: root.monitors
+                                currentValue: root.selectedMonitor || MpvPaperI18n.tr("No Monitors", "mpvpaper")
+                                compactMode: true
+                                transientSurfaceTracker: popout.parentPopout?.transientSurfaceTracker
                                 onValueChanged: (value) => { root.selectedMonitor = value; root.currentPage = 0; root.gridIndex = 0 }
                             }
                         }
@@ -311,26 +320,6 @@ PluginComponent {
                     }
                 }
 
-                Column {
-                    anchors.centerIn: parent
-                    width: Math.min(parent.width - Theme.spacingXL * 2, 420)
-                    spacing: Theme.spacingM
-                    visible: !root.coreAvailable
-
-                    DankIcon {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        name: "warning"
-                        size: 40
-                        color: Theme.warning
-                    }
-                    StyledText {
-                        width: parent.width
-                        text: MpvPaperI18n.tr("Install and enable MpvPaper Plugin before using this widget.", "mpvpaper")
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.Wrap
-                        color: Theme.surfaceText
-                    }
-                }
             }
         }
     }

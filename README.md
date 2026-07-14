@@ -1,26 +1,39 @@
 # MpvPaper Plugin
 
-![Screenshot](screenshot.png)
+![MpvPaper settings](screenshot.png)
 
-This is a composite desktop video wallpaper plugin built for DMS, based on mpvpaper. It includes both the wallpaper daemon and a DankBar widget.
+A DMS 1.5 composite plugin for video wallpapers. One installation provides both the background daemon and a DankBar widget.
 
-## Core Features
-* Multi-monitor support: Independent video playlists can be set for different screens.
-* GPU hardware acceleration: Built-in support for multiple hardware decoding modes such as nvdec, vaapi, and vdpau, significantly reducing CPU usage.
-* Memory leak protection: Supports customizable scheduled auto-restarts for the playback process to ensure the system remains smooth over long periods of operation.
-* Idle resource recovery: The plugin hooks into the DMS lock screen state. When the system is locked, the plugin automatically stops rendering to save power.
-* DankBar widget: Browse and switch video wallpapers directly from the status bar.
+## Features
 
-## System Dependencies
-**Required**: This plugin requires `mpvpaper` and `ffmpeg` (`ffmpeg` generates video thumbnails).
-* Arch Linux: `sudo pacman -S ffmpeg`
-* Arch Linux (AUR): `yay -S mpvpaper`
+- Independent video playlists for multiple monitors
+- Included DankBar widget for browsing and switching wallpapers
+- Hardware decoding with `auto`, `nvdec`, `vaapi`, and `vdpau` modes
+- Automatic playback-process restart with a configurable interval
+- Automatic playback pause while the DMS lock screen is active
+- English and Simplified Chinese settings
+
+## Requirements
+
+- DMS 1.5.0 or later
+- [`mpvpaper`](https://github.com/GhostNaN/mpvpaper)
+- `ffmpeg` for video thumbnails
+
+On Arch Linux:
+
+```bash
+sudo pacman -S ffmpeg
+yay -S mpvpaper
+```
 
 ## Usage
-After installation, go directly to "System Settings -> MpvPaper Plugin" to manage the video library, adjust volume, and set the tiling mode.
 
-## DankBar Widget
-After enabling the plugin, add **MpvPaper Plugin** to your DankBar layout to switch wallpapers without opening the settings page.
+1. Install and enable **MpvPaper Plugin** in DMS.
+2. Open the plugin settings to add videos, select a monitor, and configure playback.
+3. In the DankBar layout settings, add **MpvPaper Plugin** to use the included widget.
+
+The daemon and DankBar widget share the same playlists and settings.
 
 ## License
+
 MIT
