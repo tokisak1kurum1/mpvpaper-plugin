@@ -72,6 +72,8 @@ const translations = {
             "Video playback failed on %1": "显示器 %1 上的视频播放失败",
             "Play videos as desktop wallpapers with multi-monitor support and playlist management.": "高性能桌面视频壁纸插件，支持多显示器和播放列表管理。",
             "A taskbar control panel to browse and switch wallpapers. Requires MpvPaper Plugin to be installed.": "状态栏控制面板，用于快速切换壁纸。需要先安装 MpvPaper 插件。"
+            ,"MpvPaper Plugin is not loaded": "MpvPaper 插件未加载"
+            ,"Install and enable MpvPaper Plugin before using this widget.": "请先安装并启用 MpvPaper 插件，然后再使用此小组件。"
             ,"Language": "语言"
             ,"Simplified Chinese": "简体中文"
             ,"English": "English"
