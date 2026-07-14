@@ -9,10 +9,21 @@ import qs.Common
 import qs.Widgets
 import qs.Services
 import qs.Modules.Plugins
+import qs.Modals.FileBrowser
 
 PluginSettings {
     id: root
     pluginId: "mpvpaper"
+
+    property string language: "en"
+
+    function syncLanguage() {
+        language = loadValue("language", "en")
+        MpvPaperI18n.language = language
+    }
+
+    Component.onCompleted: syncLanguage()
+    onPluginServiceChanged: syncLanguage()
 
     property var monitors: Quickshell.screens.map(screen => screen.name)
     property string selectedMonitor: monitors.length > 0 ? monitors[0] : ""
@@ -24,6 +35,7 @@ PluginSettings {
         enabled: pluginService !== null
         function onPluginDataChanged(changedPluginId) {
             if (changedPluginId === pluginId) {
+                root.syncLanguage()
                 currentVideoRefresh++
             }
         }
@@ -34,16 +46,43 @@ PluginSettings {
     }
 
     StyledText {
-        text: I18n.tr("MpvPaper Plugin", "mpvpaper")
+        text: MpvPaperI18n.tr("MpvPaper Plugin", "mpvpaper")
         font.pixelSize: Theme.fontSizeLarge
         font.weight: Font.Bold
     }
 
     StyledText {
-        text: I18n.tr("Video wallpaper using mpvpaper", "mpvpaper")
+        text: MpvPaperI18n.tr("Video wallpaper using mpvpaper", "mpvpaper")
         font.pixelSize: Theme.fontSizeMedium
         opacity: 0.7
         wrapMode: Text.Wrap
+    }
+
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+
+        StyledText {
+            text: MpvPaperI18n.tr("Language", "mpvpaper")
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            width: 180
+            anchors.verticalCenter: parent.verticalCenter
+        }
+
+        DankDropdown {
+            width: parent.width - 180 - Theme.spacingM
+            options: [MpvPaperI18n.tr("English", "mpvpaper"), MpvPaperI18n.tr("Simplified Chinese", "mpvpaper")]
+            currentValue: root.language === "zh_CN" ? MpvPaperI18n.tr("Simplified Chinese", "mpvpaper") : MpvPaperI18n.tr("English", "mpvpaper")
+            compactMode: true
+            onValueChanged: (value) => {
+                const nextLanguage = value === MpvPaperI18n.tr("Simplified Chinese", "mpvpaper") ? "zh_CN" : "en"
+                if (nextLanguage === root.language) return
+                root.language = nextLanguage
+                MpvPaperI18n.language = nextLanguage
+                root.saveValue("language", nextLanguage)
+            }
+        }
     }
 
     Rectangle {
@@ -57,7 +96,7 @@ PluginSettings {
         spacing: Theme.spacingM
 
         StyledText {
-            text: I18n.tr("Monitor", "mpvpaper")
+            text: MpvPaperI18n.tr("Monitor", "mpvpaper")
             font.pixelSize: Theme.fontSizeMedium
             font.weight: Font.Medium
             width: 180
@@ -67,7 +106,7 @@ PluginSettings {
         DankDropdown {
             width: parent.width - 180 - Theme.spacingM
             options: root.monitors
-            currentValue: root.selectedMonitor || I18n.tr("No Monitors", "mpvpaper")
+            currentValue: root.selectedMonitor || MpvPaperI18n.tr("No Monitors", "mpvpaper")
             enabled: root.monitors.length > 1
             compactMode: true
 
@@ -229,8 +268,11 @@ PluginSettings {
                                 playlistThumbGenProcess.thumbnailPath = thumbnailPath
                                 playlistThumbGenProcess.videoPath = videoPath
                                 playlistThumbGenProcess.cacheDir = cacheDir
+                                // Pass paths as positional parameters so quotes and shell
+                                // metacharacters in valid filenames are never evaluated.
                                 playlistThumbGenProcess.command = ["bash", "-c",
-                                    `mkdir -p "${cacheDir}" && ffmpeg -i "${videoPath}" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "${thumbnailPath}" -y 2>/dev/null`
+                                    'mkdir -p -- "$1" && ffmpeg -loglevel error -i "$2" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$3" -y',
+                                    "mpvpaper-thumbnail", cacheDir, videoPath, thumbnailPath
                                 ]
                                 playlistThumbGenProcess.running = true
                             }
@@ -319,9 +361,9 @@ PluginSettings {
             currentVideoRefresh
             const playlist = getPlaylist()
             if (playlist.length > 0) {
-                return I18n.tr("Video List (%1 videos)", "mpvpaper").arg(playlist.length)
+                return MpvPaperI18n.tr("Video List (%1 videos)", "mpvpaper").arg(playlist.length)
             }
-            return I18n.tr("Video List (Empty)", "mpvpaper")
+            return MpvPaperI18n.tr("Video List (Empty)", "mpvpaper")
         }
         font.pixelSize: Theme.fontSizeMedium
         font.weight: Font.Medium
@@ -329,7 +371,7 @@ PluginSettings {
     }
 
     StyledText {
-        text: I18n.tr("Add videos to the list and select a playback mode", "mpvpaper")
+        text: MpvPaperI18n.tr("Add videos to the list and select a playback mode", "mpvpaper")
         font.pixelSize: Theme.fontSizeSmall
         opacity: 0.7
         wrapMode: Text.Wrap
@@ -340,7 +382,7 @@ PluginSettings {
         spacing: Theme.spacingM
 
         DankButton {
-            text: I18n.tr("Add Video", "mpvpaper")
+            text: MpvPaperI18n.tr("Add Video", "mpvpaper")
             width: (parent.width - Theme.spacingM * 2) / 3
             onClicked: {
                 openSystemFilePicker()
@@ -348,7 +390,7 @@ PluginSettings {
         }
 
         DankButton {
-            text: I18n.tr("Add Folder", "mpvpaper")
+            text: MpvPaperI18n.tr("Add Folder", "mpvpaper")
             width: (parent.width - Theme.spacingM * 2) / 3
             onClicked: {
                 openSystemDirectoryPicker()
@@ -356,7 +398,7 @@ PluginSettings {
         }
 
         DankButton {
-            text: I18n.tr("Clear List", "mpvpaper")
+            text: MpvPaperI18n.tr("Clear List", "mpvpaper")
             width: (parent.width - Theme.spacingM * 2) / 3
             enabled: getPlaylist().length > 0
             onClicked: {
@@ -372,7 +414,7 @@ PluginSettings {
     }
 
     StyledText {
-        text: I18n.tr("Video Settings", "mpvpaper")
+        text: MpvPaperI18n.tr("Video Settings", "mpvpaper")
         font.pixelSize: Theme.fontSizeMedium
         font.weight: Font.Medium
     }
@@ -387,7 +429,7 @@ PluginSettings {
             spacing: Theme.spacingM
 
             StyledText {
-                text: I18n.tr("Hardware Decoding", "mpvpaper")
+                text: MpvPaperI18n.tr("Hardware Decoding", "mpvpaper")
                 font.pixelSize: Theme.fontSizeSmall
                 width: 180
                 anchors.verticalCenter: parent.verticalCenter
@@ -411,7 +453,7 @@ PluginSettings {
             }
         }
         StyledText {
-            text: I18n.tr("Hardware acceleration method for video decoding", "mpvpaper")
+            text: MpvPaperI18n.tr("Hardware acceleration method for video decoding", "mpvpaper")
             font.pixelSize: Theme.fontSizeSmall * 0.9
             opacity: 0.5
             width: parent.width
@@ -427,7 +469,7 @@ PluginSettings {
             width: parent.width
             spacing: Theme.spacingM
             StyledText {
-                text: I18n.tr("Tiling Mode", "mpvpaper")
+                text: MpvPaperI18n.tr("Tiling Mode", "mpvpaper")
                 font.pixelSize: Theme.fontSizeSmall
                 width: 180
                 anchors.verticalCenter: parent.verticalCenter
@@ -435,7 +477,7 @@ PluginSettings {
             DankDropdown {
                 id: panscanDropdown
                 width: parent.width - 180 - Theme.spacingM
-                options: [I18n.tr("Fill Screen (Crop)", "mpvpaper"), I18n.tr("Fit Screen (Letterbox)", "mpvpaper"), I18n.tr("Stretch Fill", "mpvpaper")]
+                options: [MpvPaperI18n.tr("Fill Screen (Crop)", "mpvpaper"), MpvPaperI18n.tr("Fit Screen (Letterbox)", "mpvpaper"), MpvPaperI18n.tr("Stretch Fill", "mpvpaper")]
                 compactMode: true
 
                 Binding {
@@ -443,16 +485,16 @@ PluginSettings {
                     property: "currentValue"
                     value: {
                         const panscan = getVideoSetting("panscan", 1.0)
-                        if (panscan === 1.0) return I18n.tr("Fill Screen (Crop)", "mpvpaper")
-                        if (panscan === 0.0) return I18n.tr("Fit Screen (Letterbox)", "mpvpaper")
-                        return I18n.tr("Stretch Fill", "mpvpaper")
+                        if (panscan === 1.0) return MpvPaperI18n.tr("Fill Screen (Crop)", "mpvpaper")
+                        if (panscan === 0.0) return MpvPaperI18n.tr("Fit Screen (Letterbox)", "mpvpaper")
+                        return MpvPaperI18n.tr("Stretch Fill", "mpvpaper")
                     }
                 }
 
                 onValueChanged: (value) => {
-                    if (value === I18n.tr("Fill Screen (Crop)", "mpvpaper")) {
+                    if (value === MpvPaperI18n.tr("Fill Screen (Crop)", "mpvpaper")) {
                         saveVideoSetting("panscan", 1.0)
-                    } else if (value === I18n.tr("Fit Screen (Letterbox)", "mpvpaper")) {
+                    } else if (value === MpvPaperI18n.tr("Fit Screen (Letterbox)", "mpvpaper")) {
                         saveVideoSetting("panscan", 0.0)
                     } else {
                         saveVideoSetting("panscan", 0.5)
@@ -461,7 +503,7 @@ PluginSettings {
             }
         }
         StyledText {
-            text: I18n.tr("Choose how the video fits the screen size", "mpvpaper")
+            text: MpvPaperI18n.tr("Choose how the video fits the screen size", "mpvpaper")
             font.pixelSize: Theme.fontSizeSmall * 0.9
             opacity: 0.5
             width: parent.width
@@ -489,7 +531,7 @@ PluginSettings {
             spacing: Theme.spacingM
 
             StyledText {
-                text: I18n.tr("Volume", "mpvpaper")
+                text: MpvPaperI18n.tr("Volume", "mpvpaper")
                 font.pixelSize: Theme.fontSizeSmall
                 width: 180
                 anchors.verticalCenter: parent.verticalCenter
@@ -523,7 +565,7 @@ PluginSettings {
             }
         }
         StyledText {
-            text: I18n.tr("Audio volume (0 = Mute)", "mpvpaper")
+            text: MpvPaperI18n.tr("Audio volume (0 = Mute)", "mpvpaper")
             font.pixelSize: Theme.fontSizeSmall * 0.9
             opacity: 0.5
             width: parent.width
@@ -545,7 +587,7 @@ PluginSettings {
             width: parent.width
             spacing: Theme.spacingM
             StyledText {
-                text: I18n.tr("Scheduled Restart Interval", "mpvpaper")
+                text: MpvPaperI18n.tr("Scheduled Restart Interval", "mpvpaper")
                 font.pixelSize: Theme.fontSizeSmall
                 width: 180
                 anchors.verticalCenter: parent.verticalCenter
@@ -553,7 +595,7 @@ PluginSettings {
             DankDropdown {
                 id: restartIntervalDropdown
                 width: parent.width - 180 - Theme.spacingM
-                options: [I18n.tr("Disabled", "mpvpaper"), I18n.tr("10 Minutes", "mpvpaper"), I18n.tr("30 Minutes", "mpvpaper"), I18n.tr("1 Hour", "mpvpaper"), I18n.tr("2 Hours", "mpvpaper")]
+                options: [MpvPaperI18n.tr("Disabled", "mpvpaper"), MpvPaperI18n.tr("10 Minutes", "mpvpaper"), MpvPaperI18n.tr("30 Minutes", "mpvpaper"), MpvPaperI18n.tr("1 Hour", "mpvpaper"), MpvPaperI18n.tr("2 Hours", "mpvpaper")]
                 compactMode: true
 
                 Binding {
@@ -561,28 +603,28 @@ PluginSettings {
                     property: "currentValue"
                     value: {
                         const interval = loadValue("restartInterval", 60)
-                        if (interval === 0) return I18n.tr("Disabled", "mpvpaper")
-                        if (interval === 10) return I18n.tr("10 Minutes", "mpvpaper")
-                        if (interval === 30) return I18n.tr("30 Minutes", "mpvpaper")
-                        if (interval === 60) return I18n.tr("1 Hour", "mpvpaper")
-                        if (interval === 120) return I18n.tr("2 Hours", "mpvpaper")
-                        return I18n.tr("1 Hour", "mpvpaper")
+                        if (interval === 0) return MpvPaperI18n.tr("Disabled", "mpvpaper")
+                        if (interval === 10) return MpvPaperI18n.tr("10 Minutes", "mpvpaper")
+                        if (interval === 30) return MpvPaperI18n.tr("30 Minutes", "mpvpaper")
+                        if (interval === 60) return MpvPaperI18n.tr("1 Hour", "mpvpaper")
+                        if (interval === 120) return MpvPaperI18n.tr("2 Hours", "mpvpaper")
+                        return MpvPaperI18n.tr("1 Hour", "mpvpaper")
                     }
                 }
 
                 onValueChanged: (value) => {
                     let interval = 60
-                    if (value === I18n.tr("Disabled", "mpvpaper")) interval = 0
-                    else if (value === I18n.tr("10 Minutes", "mpvpaper")) interval = 10
-                    else if (value === I18n.tr("30 Minutes", "mpvpaper")) interval = 30
-                    else if (value === I18n.tr("1 Hour", "mpvpaper")) interval = 60
-                    else if (value === I18n.tr("2 Hours", "mpvpaper")) interval = 120
+                    if (value === MpvPaperI18n.tr("Disabled", "mpvpaper")) interval = 0
+                    else if (value === MpvPaperI18n.tr("10 Minutes", "mpvpaper")) interval = 10
+                    else if (value === MpvPaperI18n.tr("30 Minutes", "mpvpaper")) interval = 30
+                    else if (value === MpvPaperI18n.tr("1 Hour", "mpvpaper")) interval = 60
+                    else if (value === MpvPaperI18n.tr("2 Hours", "mpvpaper")) interval = 120
                     saveValue("restartInterval", interval)
                 }
             }
         }
         StyledText {
-            text: I18n.tr("Periodically restart mpv process to prevent potential memory leaks", "mpvpaper")
+            text: MpvPaperI18n.tr("Periodically restart mpv process to prevent potential memory leaks", "mpvpaper")
             font.pixelSize: Theme.fontSizeSmall * 0.9
             opacity: 0.5
             width: parent.width
@@ -608,9 +650,9 @@ PluginSettings {
         // Try zenity first (GNOME), fallback to kdialog (KDE)
         command: ["bash", "-c",
             `if command -v zenity >/dev/null 2>&1; then
-                zenity --file-selection --multiple --separator=$'\n' --title="${I18n.tr("Select Video Files", "mpvpaper")}" --file-filter="${I18n.tr("Video Files", "mpvpaper")} | *.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v" --file-filter="${I18n.tr("All Files", "mpvpaper")} | *"
+                zenity --file-selection --multiple --separator=$'\n' --title="${MpvPaperI18n.tr("Select Video Files", "mpvpaper")}" --file-filter="${MpvPaperI18n.tr("Video Files", "mpvpaper")} | *.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v" --file-filter="${MpvPaperI18n.tr("All Files", "mpvpaper")} | *"
             elif command -v kdialog >/dev/null 2>&1; then
-                kdialog --getopenfilename ~ "*.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v|${I18n.tr("Video Files", "mpvpaper")}" --multiple --separate-output
+                kdialog --getopenfilename ~ "*.mp4 *.mkv *.webm *.avi *.mov *.flv *.wmv *.m4v|${MpvPaperI18n.tr("Video Files", "mpvpaper")}" --multiple --separate-output
             else
                 echo "ERROR: No file picker available"
                 exit 1
@@ -630,18 +672,14 @@ PluginSettings {
                 if (files.length > 0) {
                     addMultipleToPlaylist(files)
                     if (files.length === 1) {
-                        ToastService.showInfo(I18n.tr("Video Added", "mpvpaper"), files[0].substring(files[0].lastIndexOf('/') + 1))
+                        ToastService.showInfo(MpvPaperI18n.tr("Video Added", "mpvpaper"), files[0].substring(files[0].lastIndexOf('/') + 1))
                     } else {
-                        ToastService.showInfo(I18n.tr("Video Added", "mpvpaper"), I18n.tr("Successfully added %1 videos", "mpvpaper").arg(files.length))
+                        ToastService.showInfo(MpvPaperI18n.tr("Video Added", "mpvpaper"), MpvPaperI18n.tr("Successfully added %1 videos", "mpvpaper").arg(files.length))
                     }
                 }
             } else if (trimmedOutput.includes("ERROR")) {
-                // No file picker available, use custom browser
-                console.log("MpvPaper: System file picker not available, using custom browser")
-                const currentPath = getCurrentVideoPath()
-                const initialDir = currentPath ? currentPath.substring(0, currentPath.lastIndexOf('/')) : ""
-                videoBrowser.initialDirectory = initialDir
-                videoBrowser.open()
+                console.log("MpvPaper: System file picker not available, using DMS file browser")
+                videoFileBrowser.open()
             }
             selectedFile = ""
         }
@@ -658,7 +696,7 @@ PluginSettings {
 
         command: ["bash", "-c",
             `if command -v zenity >/dev/null 2>&1; then
-                zenity --file-selection --directory --title="${I18n.tr("Select Video Folder", "mpvpaper")}"
+                zenity --file-selection --directory --title="${MpvPaperI18n.tr("Select Video Folder", "mpvpaper")}"
             elif command -v kdialog >/dev/null 2>&1; then
                 kdialog --getexistingdirectory ~
             else
@@ -684,8 +722,9 @@ PluginSettings {
 
     function scanAndAddFolder(dirPath) {
         folderScanProcess.scanOutput = ""
-        folderScanProcess.command = ["bash", "-c",
-            `find "${dirPath}" -type f -regextype posix-extended -regex ".*\\.(mp4|mkv|webm|avi|mov|flv|wmv|m4v|MP4|MKV|WEBM|AVI|MOV|FLV|WMV|M4V)" | sort`
+        folderScanProcess.command = [
+            "find", dirPath, "-type", "f", "-regextype", "posix-extended",
+            "-iregex", ".*\\.(mp4|mkv|webm|avi|mov|flv|wmv|m4v)"
         ]
         folderScanProcess.running = true
     }
@@ -703,9 +742,9 @@ PluginSettings {
                 const files = scanOutput.trim().split('\n').filter(f => f.trim() !== "")
                 if (files.length > 0) {
                     addMultipleToPlaylist(files)
-                    ToastService.showInfo(I18n.tr("Folder Added", "mpvpaper"), I18n.tr("Added %1 videos from directory", "mpvpaper").arg(files.length))
+                    ToastService.showInfo(MpvPaperI18n.tr("Folder Added", "mpvpaper"), MpvPaperI18n.tr("Added %1 videos from directory", "mpvpaper").arg(files.length))
                 } else {
-                    ToastService.showWarning(I18n.tr("No Videos Found", "mpvpaper"), I18n.tr("No supported video files found in selected folder", "mpvpaper"))
+                    ToastService.showWarning(MpvPaperI18n.tr("No Videos Found", "mpvpaper"), MpvPaperI18n.tr("No supported video files found in selected folder", "mpvpaper"))
                 }
             }
             scanOutput = ""
@@ -734,6 +773,10 @@ PluginSettings {
         
         if (addedCount > 0) {
             saveValue("monitorPlaylists", playlists)
+
+            var indices = loadValue("playlistIndices", {})
+            indices[selectedMonitor] = playlists[selectedMonitor].indexOf(lastAdded)
+            saveValue("playlistIndices", indices)
             
             // Set the last added video as current
             var monitorVideos = loadValue("monitorVideos", {})
@@ -859,7 +902,7 @@ PluginSettings {
         const previewPath = cacheDir + "/" + Math.abs(hash) + "_preview.jpg"
         
         // Delete both thumbnail files
-        thumbnailDeleteProcess.command = ["bash", "-c", `rm -f "${thumbPath}" "${previewPath}"`]
+        thumbnailDeleteProcess.command = ["rm", "-f", "--", thumbPath, previewPath]
         thumbnailDeleteProcess.running = true
     }
     
@@ -876,6 +919,10 @@ PluginSettings {
         var monitorVideos = loadValue("monitorVideos", {})
         delete monitorVideos[selectedMonitor]
         saveValue("monitorVideos", monitorVideos)
+
+        var indices = loadValue("playlistIndices", {})
+        delete indices[selectedMonitor]
+        saveValue("playlistIndices", indices)
         
         playlistVersion++
         var currentMonitor = selectedMonitor
@@ -919,18 +966,17 @@ PluginSettings {
         return Array.isArray(list) ? list : []
     }
 
-    Item {
-        id: modalMount
-        width: 0
-        height: 0
-        visible: false
+    FileBrowserSurfaceModal {
+        id: videoFileBrowser
+        browserTitle: MpvPaperI18n.tr("Select Video Files", "mpvpaper")
+        browserIcon: "movie"
+        browserType: "mpvpaper-video"
+        showHiddenFiles: true
+        fileExtensions: ["*.mp4", "*.mkv", "*.webm", "*.avi", "*.mov", "*.flv", "*.wmv", "*.m4v"]
 
-        VideoBrowserModal {
-            id: videoBrowser
-
-            onVideoSelected: (videoPath) => {
-                root.addToPlaylist(videoPath)
-            }
+        onFileSelected: (videoPath) => {
+            root.addToPlaylist(videoPath)
+            close()
         }
     }
 }

@@ -5,13 +5,14 @@ import Quickshell.Io
 import qs.Common
 import qs.Services
 import qs.Modules.Plugins
-import "./translations.js" as Translations
 
 PluginComponent {
     id: root
     pluginId: "mpvpaper"
 
-    property bool isLocked: SessionService.locked
+    // Follow DMS's actual shell lock state. SessionService.locked is a
+    // loginctl hint and may remain stale even when no lock surface exists.
+    property bool isLocked: IdleService.isShellLocked
     
     onIsLockedChanged: {
         if (isLocked) {
@@ -35,17 +36,13 @@ PluginComponent {
         // 停止所有进程对象
         for (const monitor in processes) {
             if (processes[monitor]) {
+                processes[monitor].stopping = true
                 processes[monitor].running = false
                 processes[monitor].destroy()
                 delete processes[monitor]
             }
         }
-
-        // 强制杀掉所有 mpvpaper 进程
-        Quickshell.execDetached([
-            "bash", "-c",
-            "pkill -9 -f 'mpvpaper' 2>/dev/null || true"
-        ])
+        processes = ({})
     }
 
     property var monitorVideos: pluginData.monitorVideos || {}
@@ -57,9 +54,15 @@ PluginComponent {
     property var pendingLaunches: ({})
     property bool isSyncing: false
     property var restartTimers: ({})  // 每个显示器的重启定时器
+    property var recoveryTimers: ({})
+    property var stabilityTimers: ({})
+    property var recoveryAttempts: ({})
+    property var recoveryKeys: ({})
+    property int maxRecoveryAttempts: 5
     property int restartInterval: (pluginData.restartInterval || 60) * 60000 // 默认60分钟，转为毫秒
 
     onPluginDataChanged: {
+        MpvPaperI18n.language = pluginData.language || "en"
         if (ready && !isSyncing) {
             // Update restart interval if changed
             const newInterval = (pluginData.restartInterval || 60) * 60000
@@ -102,7 +105,7 @@ PluginComponent {
             const newScreens = currentScreenNames.filter(name => !previousScreenNames.includes(name))
             for (const screenName of newScreens) {
                 const videoPath = getEffectiveVideo(screenName)
-                if (videoPath) {
+                if (!isLocked && videoPath) {
                     console.info("MpvPaper: Display connected:", screenName, "- restoring video:", videoPath)
                     launchMpvPaper(screenName, videoPath)
                 }
@@ -110,10 +113,6 @@ PluginComponent {
 
             previousScreenNames = currentScreenNames
         }
-    }
-
-    function escapeRegex(str) {
-        return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     }
 
     function deepEqual(a, b) {
@@ -150,6 +149,12 @@ PluginComponent {
             }
             if (idx < 0 || idx >= playlist.length) {
                 idx = 0
+                const indices = Object.assign({}, playlistIndices)
+                indices[monitor] = idx
+                playlistIndices = indices
+                if (pluginService && pluginService.savePluginData) {
+                    pluginService.savePluginData(pluginId, "playlistIndices", indices)
+                }
             }
             return playlist[idx]
         }
@@ -157,6 +162,10 @@ PluginComponent {
     }
 
     function syncVideosWithData() {
+        if (isLocked) {
+            console.info("MpvPaper: Screen is locked, skipping video sync")
+            return
+        }
         if (isSyncing) {
             console.warn("MpvPaper: Sync already in progress, skipping")
             return
@@ -236,6 +245,19 @@ PluginComponent {
     }
 
     function launchMpvPaper(monitor, videoPath) {
+        if (isLocked || !videoPath) {
+            console.info("MpvPaper: Refusing launch while locked or without a video for", monitor)
+            return
+        }
+
+        const recoveryKey = videoPath + "\n" + JSON.stringify(getVideoSettings(videoPath) || {})
+        if (recoveryKeys[monitor] !== recoveryKey) {
+            resetRecovery(monitor)
+            const keys = Object.assign({}, recoveryKeys)
+            keys[monitor] = recoveryKey
+            recoveryKeys = keys
+        }
+
         // Prevent duplicate launches
         if (pendingLaunches[monitor]) {
             console.warn("MpvPaper: Launch already pending for", monitor, "- skipping")
@@ -265,20 +287,28 @@ PluginComponent {
         console.info("MpvPaper: Stopping video for", monitor, "startNew:", startNew)
 
         if (processes[monitor]) {
+            processes[monitor].stopping = true
             processes[monitor].running = false
             processes[monitor].destroy()
-            delete processes[monitor]
+            const procs = Object.assign({}, processes)
+            delete procs[monitor]
+            processes = procs
         }
         
         // 停止重启定时器
         stopRestartTimer(monitor)
 
-        var killerProc = killerComponent.createObject(root, {
-            monitor: monitor,
-            startNew: startNew,
-            newVideoPath: newVideoPath
-        })
-        killerProc.running = true
+        if (startNew) {
+            var delay = launchDelayComponent.createObject(root, {
+                monitor: monitor,
+                videoPath: newVideoPath
+            })
+            delay.start()
+        } else {
+            const pending = Object.assign({}, pendingLaunches)
+            delete pending[monitor]
+            pendingLaunches = pending
+        }
     }
 
     Component {
@@ -290,6 +320,7 @@ PluginComponent {
             property string monitor: ""
             property string videoPath: ""
             property var settings: ({})
+            property bool stopping: false
 
             command: {
                 var args = [
@@ -373,42 +404,43 @@ PluginComponent {
             }
 
             onExited: (code) => {
-                if (code !== 0) {
+                const procs = Object.assign({}, processes)
+                if (procs[monitor] === mpvProc) {
+                    delete procs[monitor]
+                    processes = procs
+                }
+
+                if (!stopping && code !== 0) {
                     console.warn("MpvPaper: Process exited with code:", code, "for video", videoPath, "on", monitor)
-                    ToastService.showError(I18n.tr("MpvPaper Error", "mpvpaper"), I18n.tr("Video playback failed on %1", "mpvpaper").arg(monitor))
+                    ToastService.showError(MpvPaperI18n.tr("MpvPaper Error", "mpvpaper"), MpvPaperI18n.tr("Video playback failed on %1", "mpvpaper").arg(monitor))
+                }
+
+                if (!stopping && !isLocked && getEffectiveVideo(monitor)) {
+                    scheduleRecovery(monitor, videoPath, settings)
                 }
             }
         }
     }
 
     Component {
-        id: killerComponent
+        id: launchDelayComponent
 
-        Process {
+        Timer {
+            id: launchDelay
             property string monitor: ""
-            property bool startNew: false
-            property string newVideoPath: ""
+            property string videoPath: ""
+            interval: 150
+            repeat: false
 
-            command: [
-                "bash", "-c",
-                "pkill -9 -f 'mpvpaper.*" + escapeRegex(monitor) + "' 2>/dev/null; sleep 0.1; exit 0"
-            ]
-
-            onExited: () => {
-                console.info("MpvPaper: Killer process finished for", monitor, "startNew:", startNew)
-                
+            onTriggered: {
                 const pending = Object.assign({}, pendingLaunches)
-                if (!startNew) {
-                    delete pending[monitor]
-                    pendingLaunches = pending
-                }
-                if (startNew) {
-                    var videoSettings = getVideoSettings(newVideoPath)
-                    console.info("MpvPaper: Creating new process for", monitor, "video:", newVideoPath)
-                    
+                if (!isLocked && videoPath) {
+                    var videoSettings = getVideoSettings(videoPath)
+                    console.info("MpvPaper: Creating new process for", monitor, "video:", videoPath)
+
                     var mpvProc = mpvProcessComponent.createObject(root, {
-                        monitor: monitor,
-                        videoPath: newVideoPath,
+                        monitor: launchDelay.monitor,
+                        videoPath: launchDelay.videoPath,
                         settings: videoSettings
                     })
 
@@ -416,27 +448,136 @@ PluginComponent {
                     procs[monitor] = mpvProc
                     processes = procs
                     mpvProc.running = true
-                    
-                    console.info("MpvPaper: Process started for", monitor)
-                    delete pending[monitor]
-                    pendingLaunches = pending
-                }
+                    scheduleStabilityReset(monitor, videoPath, videoSettings)
 
+                    console.info("MpvPaper: Process started for", monitor)
+                }
+                delete pending[monitor]
+                pendingLaunches = pending
                 destroy()
             }
         }
     }
 
+    Component {
+        id: recoveryTimerComponent
+
+        Timer {
+            property string monitor: ""
+            interval: 1500
+            repeat: false
+            onTriggered: {
+                const timers = Object.assign({}, recoveryTimers)
+                delete timers[monitor]
+                recoveryTimers = timers
+                destroy()
+                if (!isLocked) syncVideosWithData()
+            }
+        }
+    }
+
+    function scheduleRecovery(monitor, videoPath, settings) {
+        if (recoveryTimers[monitor]) return
+
+        const key = videoPath + "\n" + JSON.stringify(settings || {})
+        if (recoveryKeys[monitor] !== key) {
+            resetRecovery(monitor)
+            const keys = Object.assign({}, recoveryKeys)
+            keys[monitor] = key
+            recoveryKeys = keys
+        }
+
+        const attempt = (recoveryAttempts[monitor] || 0) + 1
+        const attempts = Object.assign({}, recoveryAttempts)
+        attempts[monitor] = attempt
+        recoveryAttempts = attempts
+
+        if (attempt > maxRecoveryAttempts) {
+            console.error("MpvPaper: Giving up recovery for", monitor, "after", maxRecoveryAttempts, "attempts")
+            ToastService.showError(MpvPaperI18n.tr("MpvPaper Error", "mpvpaper"), MpvPaperI18n.tr("Video playback failed on %1", "mpvpaper").arg(monitor))
+            return
+        }
+
+        const delay = 1500 * Math.pow(2, attempt - 1)
+        console.warn("MpvPaper: Scheduling recovery", attempt, "of", maxRecoveryAttempts, "for", monitor, "in", delay, "ms")
+        const timer = recoveryTimerComponent.createObject(root, {
+            monitor: monitor,
+            interval: delay
+        })
+        const timers = Object.assign({}, recoveryTimers)
+        timers[monitor] = timer
+        recoveryTimers = timers
+        timer.start()
+    }
+
+    function resetRecovery(monitor) {
+        if (recoveryTimers[monitor]) {
+            recoveryTimers[monitor].stop()
+            recoveryTimers[monitor].destroy()
+        }
+        const timers = Object.assign({}, recoveryTimers)
+        const attempts = Object.assign({}, recoveryAttempts)
+        const keys = Object.assign({}, recoveryKeys)
+        delete timers[monitor]
+        delete attempts[monitor]
+        delete keys[monitor]
+        recoveryTimers = timers
+        recoveryAttempts = attempts
+        recoveryKeys = keys
+    }
+
+    Component {
+        id: stabilityTimerComponent
+
+        Timer {
+            property string monitor: ""
+            property string recoveryKey: ""
+            interval: 30000
+            repeat: false
+            onTriggered: {
+                const timers = Object.assign({}, stabilityTimers)
+                delete timers[monitor]
+                stabilityTimers = timers
+                destroy()
+                if (recoveryKeys[monitor] === recoveryKey && processes[monitor]) {
+                    console.info("MpvPaper: Playback stable on", monitor, "- clearing recovery count")
+                    const attempts = Object.assign({}, recoveryAttempts)
+                    delete attempts[monitor]
+                    recoveryAttempts = attempts
+                }
+            }
+        }
+    }
+
+    function scheduleStabilityReset(monitor, videoPath, settings) {
+        if (stabilityTimers[monitor]) {
+            stabilityTimers[monitor].stop()
+            stabilityTimers[monitor].destroy()
+        }
+        const key = videoPath + "\n" + JSON.stringify(settings || {})
+        const timer = stabilityTimerComponent.createObject(root, {
+            monitor: monitor,
+            recoveryKey: key
+        })
+        const timers = Object.assign({}, stabilityTimers)
+        timers[monitor] = timer
+        stabilityTimers = timers
+        timer.start()
+    }
+
     Component.onCompleted: {
-        // Inject translations into global I18n singleton
-        Translations.inject(I18n)
+        MpvPaperI18n.language = pluginData.language || "en"
 
         previousScreenNames = Quickshell.screens.map(screen => screen.name)
         console.info("MpvPaper Daemon: Starting...")
-        
+
         // Clear any stale process references
         processes = {}
         pendingLaunches = {}
+        recoveryTimers = {}
+        stabilityTimers = {}
+        recoveryAttempts = {}
+        recoveryKeys = {}
         
         ready = true
         syncVideosWithData()
@@ -452,27 +593,31 @@ PluginComponent {
             return
         }
         
-        // 创建新的定时器
-        const timer = Qt.createQmlObject(`
-            import QtQuick
-            Timer {
-                interval: ${restartInterval}
-                repeat: false
-                running: true
-                onTriggered: {
-                    console.info("MpvPaper: Restart timer triggered for", "${monitor}")
-                    // 重启进程
-                    const videoPath = root.getEffectiveVideo("${monitor}")
-                    if (videoPath) {
-                        console.info("MpvPaper: Restarting video for", "${monitor}", ":", videoPath)
-                        root.launchMpvPaper("${monitor}", videoPath)
-                    }
+        const timer = restartTimerComponent.createObject(root, {
+            monitor: monitor,
+            interval: restartInterval
+        })
+        const timers = Object.assign({}, restartTimers)
+        timers[monitor] = timer
+        restartTimers = timers
+        timer.start()
+        console.info("MpvPaper: Set up restart timer for", monitor, "- will restart in", restartInterval/1000/60, "minutes")
+    }
+
+    Component {
+        id: restartTimerComponent
+
+        Timer {
+            property string monitor: ""
+            repeat: false
+            onTriggered: {
+                const videoPath = root.getEffectiveVideo(monitor)
+                if (!isLocked && videoPath) {
+                    console.info("MpvPaper: Restarting video for", monitor, ":", videoPath)
+                    root.launchMpvPaper(monitor, videoPath)
                 }
             }
-        `, root)
-        
-        restartTimers[monitor] = timer
-        console.info("MpvPaper: Set up restart timer for", monitor, "- will restart in", restartInterval/1000/60, "minutes")
+        }
     }
     
     function stopRestartTimer(monitor) {
@@ -494,18 +639,27 @@ PluginComponent {
             }
         }
 
-        for (const monitor in processes) {
-            if (processes[monitor]) {
-                processes[monitor].running = false
-                processes[monitor].destroy()
+        for (const monitor in recoveryTimers) {
+            if (recoveryTimers[monitor]) {
+                recoveryTimers[monitor].stop()
+                recoveryTimers[monitor].destroy()
             }
         }
 
-        for (const monitor in monitorVideos) {
-            Quickshell.execDetached([
-                "bash", "-c",
-                "pkill -9 -f 'mpvpaper.*" + escapeRegex(monitor) + "' 2>/dev/null || true"
-            ])
+
+        for (const monitor in stabilityTimers) {
+            if (stabilityTimers[monitor]) {
+                stabilityTimers[monitor].stop()
+                stabilityTimers[monitor].destroy()
+            }
+        }
+
+        for (const monitor in processes) {
+            if (processes[monitor]) {
+                processes[monitor].stopping = true
+                processes[monitor].running = false
+                processes[monitor].destroy()
+            }
         }
     }
 }
