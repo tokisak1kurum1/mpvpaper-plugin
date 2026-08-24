@@ -61,6 +61,11 @@ PluginComponent {
     property int maxRecoveryAttempts: 5
     property int restartInterval: (pluginData.restartInterval || 60) * 60000 // 默认60分钟，转为毫秒
 
+    // --- Wallpaper palette update ---
+    // Cache directory for extracted still frames used by matugen
+    readonly property string stillFrameCacheDir: StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "") + "/DankMaterialShell/mpvpaper_stills"
+    property string lastPaletteVideoPath: ""
+
     onPluginDataChanged: {
         MpvPaperI18n.language = pluginData.language || "en"
         if (ready && !isSyncing) {
@@ -451,6 +456,9 @@ PluginComponent {
                     scheduleStabilityReset(monitor, videoPath, videoSettings)
 
                     console.info("MpvPaper: Process started for", monitor)
+
+                    // Extract a still frame and update the DMS wallpaper palette
+                    root.updateWallpaperPalette(monitor, videoPath)
                 }
                 delete pending[monitor]
                 pendingLaunches = pending
@@ -563,6 +571,75 @@ PluginComponent {
         timers[monitor] = timer
         stabilityTimers = timers
         timer.start()
+    }
+
+    // --- Still frame extraction for palette update ---
+    function updateWallpaperPalette(monitor, videoPath) {
+        // Only update palette for the primary monitor (or the first one)
+        // to avoid redundant matugen runs on multi-monitor setups
+        var screens = Quickshell.screens
+        var targetMonitor = ""
+        if (typeof SettingsData !== "undefined" && SettingsData.matugenTargetMonitor && SettingsData.matugenTargetMonitor !== "") {
+            targetMonitor = SettingsData.matugenTargetMonitor
+        } else if (screens.length > 0) {
+            targetMonitor = screens[0].name
+        }
+
+        // Only update palette if this is the target monitor for matugen
+        if (targetMonitor && monitor !== targetMonitor) {
+            console.info("MpvPaper: Skipping palette update for", monitor, "(target is", targetMonitor, ")")
+            return
+        }
+
+        // Don't re-extract if the video hasn't changed
+        if (videoPath === lastPaletteVideoPath) {
+            console.info("MpvPaper: Palette already up-to-date for", videoPath)
+            return
+        }
+        lastPaletteVideoPath = videoPath
+
+        // Build a deterministic filename from the video path
+        var hash = videoPath.split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a }, 0)
+        var stillPath = stillFrameCacheDir + "/" + Math.abs(hash) + "_still.png"
+
+        console.info("MpvPaper: Extracting still frame for palette from", videoPath, "to", stillPath)
+
+        var extractor = stillFrameExtractorComponent.createObject(root, {
+            videoPath: videoPath,
+            outputPath: stillPath
+        })
+        extractor.running = true
+    }
+
+    Component {
+        id: stillFrameExtractorComponent
+
+        Process {
+            id: extractorProc
+            property string videoPath: ""
+            property string outputPath: ""
+
+            command: [
+                "bash", "-c",
+                'mkdir -p -- "$1" && ffmpeg -loglevel error -i "$2" -ss 00:00:02 -vframes 1 -vf "scale=1280:-1" -q:v 2 "$3" -y',
+                "mpvpaper-still",
+                root.stillFrameCacheDir,
+                videoPath,
+                outputPath
+            ]
+
+            onExited: (code) => {
+                if (code === 0) {
+                    console.info("MpvPaper: Still frame extracted, updating DMS wallpaper palette:", outputPath)
+                    if (typeof SessionData !== "undefined") {
+                        SessionData.setWallpaper(outputPath)
+                    }
+                } else {
+                    console.warn("MpvPaper: Failed to extract still frame (exit code:", code, ") from", videoPath)
+                }
+                destroy()
+            }
+        }
     }
 
     Component.onCompleted: {
