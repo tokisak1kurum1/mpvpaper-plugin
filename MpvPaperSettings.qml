@@ -29,6 +29,7 @@ PluginSettings {
     property string selectedMonitor: monitors.length > 0 ? monitors[0] : ""
     property int playlistVersion: 0
     property int currentVideoRefresh: 0
+    property bool sameOnAllMonitors: pluginData.sameOnAllMonitors || false
 
     Connections {
         target: pluginService
@@ -94,6 +95,42 @@ PluginSettings {
     Row {
         width: parent.width
         spacing: Theme.spacingM
+        visible: root.monitors.length > 1
+
+        StyledText {
+            text: MpvPaperI18n.tr("Same on all monitors", "mpvpaper")
+            font.pixelSize: Theme.fontSizeMedium
+            font.weight: Font.Medium
+            width: 180
+            anchors.verticalCenter: parent.verticalCenter
+        }
+        
+        Switch {
+            id: sameOnAllMonitorsSwitch
+            anchors.verticalCenter: parent.verticalCenter
+            checked: root.sameOnAllMonitors
+            
+            onCheckedChanged: {
+                if (checked === root.sameOnAllMonitors) return
+                root.sameOnAllMonitors = checked
+                if (pluginService) {
+                    pluginService.savePluginData("mpvpaper", "sameOnAllMonitors", checked)
+                }
+            }
+        }
+    }
+    
+    Rectangle {
+        width: parent.width
+        height: 1
+        color: Theme.outlineStrong
+        visible: root.monitors.length > 1
+    }
+
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+        visible: root.monitors.length > 1
 
         StyledText {
             text: MpvPaperI18n.tr("Monitor", "mpvpaper")
@@ -101,10 +138,13 @@ PluginSettings {
             font.weight: Font.Medium
             width: 180
             anchors.verticalCenter: parent.verticalCenter
+            opacity: root.sameOnAllMonitors ? 0.4 : 1.0
+            Behavior on opacity { NumberAnimation { duration: Theme.shortDuration } }
         }
 
         DankDropdown {
             width: parent.width - 180 - Theme.spacingM
+            visible: !root.sameOnAllMonitors
             options: root.monitors
             currentValue: root.selectedMonitor || MpvPaperI18n.tr("No Monitors", "mpvpaper")
             enabled: root.monitors.length > 1
@@ -112,6 +152,27 @@ PluginSettings {
 
             onValueChanged: (value) => {
                 root.selectedMonitor = value
+            }
+        }
+
+        Rectangle {
+            width: parent.width - 180 - Theme.spacingM
+            height: 36 // standard compact dropdown height
+            visible: root.sameOnAllMonitors
+            color: Theme.withAlpha(Theme.surfaceContainer, Theme.popupTransparency)
+            border.width: 1
+            border.color: Theme.outlineHeavy
+            radius: Theme.cornerRadius
+            opacity: 0.4
+            
+            StyledText {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.spacingM
+                anchors.rightMargin: Theme.spacingM
+                text: MpvPaperI18n.tr("All Monitors", "mpvpaper")
+                font.pixelSize: Theme.fontSizeMedium
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
             }
         }
     }
