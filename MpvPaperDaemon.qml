@@ -66,6 +66,8 @@ PluginComponent {
     readonly property string stillFrameCacheDir: StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "") + "/DankMaterialShell/mpvpaper_stills"
     property string lastPaletteVideoPath: ""
 
+    property bool sameOnAllMonitors: pluginData.sameOnAllMonitors || false
+
     onPluginDataChanged: {
         MpvPaperI18n.language = pluginData.language || "en"
         if (ready && !isSyncing) {
@@ -182,13 +184,23 @@ PluginComponent {
         monitorVideos = pluginData.monitorVideos || {}
         monitorPlaylists = pluginData.monitorPlaylists || {}
         playlistIndices = pluginData.playlistIndices || {}
+        sameOnAllMonitors = pluginData.sameOnAllMonitors || false
         
         const connectedMonitors = Quickshell.screens.map(screen => screen.name)
         console.info("MpvPaper: Syncing videos. Connected monitors:", JSON.stringify(connectedMonitors))
         const effectiveVideos = {}
-        for (const monitor of connectedMonitors) {
-            const video = getEffectiveVideo(monitor)
-            if (video) effectiveVideos[monitor] = video
+        
+        let primaryVideo = ""
+        if (sameOnAllMonitors && connectedMonitors.length > 0) {
+            primaryVideo = getEffectiveVideo(connectedMonitors[0])
+            for (const monitor of connectedMonitors) {
+                if (primaryVideo) effectiveVideos[monitor] = primaryVideo
+            }
+        } else {
+            for (const monitor of connectedMonitors) {
+                const video = getEffectiveVideo(monitor)
+                if (video) effectiveVideos[monitor] = video
+            }
         }
 
         for (const monitor in monitorVideos) {
