@@ -638,6 +638,33 @@ PluginSettings {
         color: Theme.outlineStrong
     }
 
+    StyledText {
+        text: MpvPaperI18n.tr("Advanced MPV Settings", "mpvpaper")
+        font.pixelSize: Theme.fontSizeMedium
+        font.weight: Font.Medium
+    }
+
+    ToggleSetting {
+        settingKey: "disableUserScripts"
+        label: MpvPaperI18n.tr("Disable user MPV scripts", "mpvpaper")
+        description: MpvPaperI18n.tr("Prevent mpv-mpris, uosc, and other local MPV scripts from loading in wallpaper processes. Recommended.", "mpvpaper")
+        defaultValue: true
+    }
+
+    StringSetting {
+        settingKey: "customMpvOptions"
+        label: MpvPaperI18n.tr("Custom MPV Options", "mpvpaper")
+        description: MpvPaperI18n.tr("These options are appended after the plugin-generated MPV options.", "mpvpaper")
+        placeholder: "--profile=..."
+        defaultValue: ""
+    }
+
+    Rectangle {
+        width: parent.width
+        height: 1
+        color: Theme.outlineStrong
+    }
+
     function openSystemFilePicker() {
         systemFilePickerProcess.selectedFile = ""
         systemFilePickerProcess.running = true

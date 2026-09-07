@@ -207,7 +207,7 @@ PluginComponent {
             }
 
             newVideos[monitor] = newVideoPath
-            const newSettings = getVideoSettings(newVideoPath)
+            const newSettings = getEffectiveSettings(newVideoPath)
 
             let oldSettings = null
             if (processes[monitor] && processes[monitor].videoPath === oldVideoPath) {
@@ -250,7 +250,7 @@ PluginComponent {
             return
         }
 
-        const recoveryKey = videoPath + "\n" + JSON.stringify(getVideoSettings(videoPath) || {})
+        const recoveryKey = videoPath + "\n" + JSON.stringify(getEffectiveSettings(videoPath) || {})
         if (recoveryKeys[monitor] !== recoveryKey) {
             resetRecovery(monitor)
             const keys = Object.assign({}, recoveryKeys)
@@ -278,6 +278,13 @@ PluginComponent {
     function getVideoSettings(videoPath) {
         var allSettings = pluginData.videoSettings || {}
         return allSettings[videoPath] || {}
+    }
+
+    function getEffectiveSettings(videoPath) {
+        const settings = Object.assign({}, getVideoSettings(videoPath))
+        settings.disableUserScripts = pluginData.disableUserScripts !== undefined ? pluginData.disableUserScripts : true
+        settings.customMpvOptions = pluginData.customMpvOptions || ""
+        return settings
     }
 
     function stopMpvPaper(monitor, startNew, newVideoPath) {
@@ -377,6 +384,10 @@ PluginComponent {
                 mpvOptions.push("--no-input-cursor")
                 mpvOptions.push("--cursor-autohide=no")
                 mpvOptions.push("--no-keepaspect-window")
+
+                if (settings.disableUserScripts !== false) {
+                    mpvOptions.push("--load-scripts=no")
+                }
                 
                 // Panscan setting
                 var panscan = settings.panscan
@@ -391,6 +402,11 @@ PluginComponent {
                     volume = 0
                 }
                 mpvOptions.push("--volume=" + volume)
+
+                const customMpvOptions = (settings.customMpvOptions || "").trim()
+                if (customMpvOptions) {
+                    mpvOptions.push(customMpvOptions)
+                }
 
                 if (mpvOptions.length > 0) {
                     args.push("-o")
@@ -435,7 +451,7 @@ PluginComponent {
             onTriggered: {
                 const pending = Object.assign({}, pendingLaunches)
                 if (!isLocked && videoPath) {
-                    var videoSettings = getVideoSettings(videoPath)
+                    var videoSettings = getEffectiveSettings(videoPath)
                     console.info("MpvPaper: Creating new process for", monitor, "video:", videoPath)
 
                     var mpvProc = mpvProcessComponent.createObject(root, {
