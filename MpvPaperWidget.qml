@@ -30,6 +30,7 @@ PluginComponent {
     property int gridIndex: 0
     property bool enableAnimation: false
     property var fileBrowserParentPopout: null
+    property bool sameOnAllMonitors: pluginData.sameOnAllMonitors || false
 
     Connections {
         target: pluginService
@@ -96,29 +97,33 @@ PluginComponent {
     function setCurrentVideo(videoPath) {
         if (!pluginService) return
         
-        const playlists = pluginService.loadPluginData("mpvpaper", "monitorPlaylists", {})
-        var playlist = playlists[selectedMonitor]
+        const targetMonitors = sameOnAllMonitors ? monitors : [selectedMonitor]
         
-        if (playlist && Array.isArray(playlist)) {
-            var videoIndex = playlist.indexOf(videoPath)
-            if (videoIndex !== -1) {
-                // 保存全局索引
-                const indices = pluginService.loadPluginData("mpvpaper", "playlistIndices", {})
-                indices[selectedMonitor] = videoIndex
-                pluginService.savePluginData("mpvpaper", "playlistIndices", indices)
-                
-                // 计算当前页面的相对索引并同步 GridView
-                const startIndex = root.currentPage * root.itemsPerPage
-                const relativeIndex = videoIndex - startIndex
-                if (relativeIndex >= 0 && relativeIndex < root.itemsPerPage) {
-                    root.gridIndex = relativeIndex
+        for (const mon of targetMonitors) {
+            const playlists = pluginService.loadPluginData("mpvpaper", "monitorPlaylists", {})
+            var playlist = playlists[mon]
+            
+            if (playlist && Array.isArray(playlist)) {
+                var videoIndex = playlist.indexOf(videoPath)
+                if (videoIndex !== -1) {
+                    const indices = pluginService.loadPluginData("mpvpaper", "playlistIndices", {})
+                    indices[mon] = videoIndex
+                    pluginService.savePluginData("mpvpaper", "playlistIndices", indices)
+                    
+                    if (mon === selectedMonitor) {
+                        const startIndex = root.currentPage * root.itemsPerPage
+                        const relativeIndex = videoIndex - startIndex
+                        if (relativeIndex >= 0 && relativeIndex < root.itemsPerPage) {
+                            root.gridIndex = relativeIndex
+                        }
+                    }
                 }
             }
+            
+            const monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
+            monitorVideos[mon] = videoPath
+            pluginService.savePluginData("mpvpaper", "monitorVideos", monitorVideos)
         }
-        
-        const monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
-        monitorVideos[selectedMonitor] = videoPath
-        pluginService.savePluginData("mpvpaper", "monitorVideos", monitorVideos)
         
         root.refreshTrigger++
     }
@@ -130,17 +135,22 @@ PluginComponent {
 
     function addToPlaylist(videoPath) {
         if (!pluginService) return
-        const playlists = pluginService.loadPluginData("mpvpaper", "monitorPlaylists", {})
-        if (!playlists[selectedMonitor]) playlists[selectedMonitor] = []
-        if (playlists[selectedMonitor].indexOf(videoPath) !== -1) return
-        playlists[selectedMonitor].push(videoPath)
-        pluginService.savePluginData("mpvpaper", "monitorPlaylists", playlists)
-        const indices = pluginService.loadPluginData("mpvpaper", "playlistIndices", {})
-        indices[selectedMonitor] = playlists[selectedMonitor].indexOf(videoPath)
-        pluginService.savePluginData("mpvpaper", "playlistIndices", indices)
-        const monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
-        monitorVideos[selectedMonitor] = videoPath
-        pluginService.savePluginData("mpvpaper", "monitorVideos", monitorVideos)
+        
+        const targetMonitors = sameOnAllMonitors ? monitors : [selectedMonitor]
+        
+        for (const mon of targetMonitors) {
+            const playlists = pluginService.loadPluginData("mpvpaper", "monitorPlaylists", {})
+            if (!playlists[mon]) playlists[mon] = []
+            if (playlists[mon].indexOf(videoPath) !== -1) continue
+            playlists[mon].push(videoPath)
+            pluginService.savePluginData("mpvpaper", "monitorPlaylists", playlists)
+            const indices = pluginService.loadPluginData("mpvpaper", "playlistIndices", {})
+            indices[mon] = playlists[mon].indexOf(videoPath)
+            pluginService.savePluginData("mpvpaper", "playlistIndices", indices)
+            const monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
+            monitorVideos[mon] = videoPath
+            pluginService.savePluginData("mpvpaper", "monitorVideos", monitorVideos)
+        }
         refreshTrigger++
     }
 
@@ -238,15 +248,45 @@ PluginComponent {
                             anchors.rightMargin: Theme.spacingS
                             spacing: Theme.spacingM
 
-                            StyledText {
-                                text: MpvPaperI18n.tr("Monitor", "mpvpaper")
-                                font.pixelSize: Theme.fontSizeSmall
-                                wrapMode: Text.NoWrap
-                                Layout.minimumWidth: 128
-                                Layout.preferredWidth: 128
+                            // "Same on all" toggle
+                            Rectangle {
                                 Layout.alignment: Qt.AlignVCenter
+                                implicitWidth: sameAllRow.implicitWidth + Theme.spacingM * 2
+                                implicitHeight: 40
+                                radius: Theme.cornerRadius
+                                color: root.sameOnAllMonitors ? Theme.withAlpha(Theme.primary, 0.15) : Theme.withAlpha(Theme.surfaceContainer, Theme.popupTransparency)
+                                border.width: 1
+                                border.color: root.sameOnAllMonitors ? Theme.primary : Theme.outlineHeavy
+
+                                Behavior on color { ColorAnimation { duration: Theme.shortDuration } }
+                                Behavior on border.color { ColorAnimation { duration: Theme.shortDuration } }
+
+                                Row {
+                                    id: sameAllRow
+                                    anchors.centerIn: parent
+                                    spacing: Theme.spacingXS
+                                    DankIcon { name: "linked_services"; size: 16; color: root.sameOnAllMonitors ? Theme.primary : Theme.surfaceText; anchors.verticalCenter: parent.verticalCenter }
+                                    StyledText {
+                                        text: MpvPaperI18n.tr("All", "mpvpaper")
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: root.sameOnAllMonitors ? Theme.primary : Theme.surfaceText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.sameOnAllMonitors = !root.sameOnAllMonitors
+                                        if (pluginService) {
+                                            pluginService.savePluginData("mpvpaper", "sameOnAllMonitors", root.sameOnAllMonitors)
+                                        }
+                                    }
+                                }
                             }
 
+                            // Per-monitor selector (hidden when "same on all" is active)
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignVCenter
@@ -255,22 +295,25 @@ PluginComponent {
                                 color: Theme.withAlpha(Theme.surfaceContainer, Theme.popupTransparency)
                                 border.width: 1
                                 border.color: Theme.outlineHeavy
+                                opacity: root.sameOnAllMonitors ? 0.4 : 1.0
+
+                                Behavior on opacity { NumberAnimation { duration: Theme.shortDuration } }
 
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.spacingS
                                     anchors.rightMargin: Theme.spacingS
 
-                                    DankActionButton { iconName: "chevron_left"; iconSize: 18; buttonSize: 30; onClicked: root.cycleMonitor(-1) }
+                                    DankActionButton { iconName: "chevron_left"; iconSize: 18; buttonSize: 30; enabled: !root.sameOnAllMonitors; onClicked: root.cycleMonitor(-1) }
                                     StyledText {
                                         Layout.fillWidth: true
-                                        text: root.selectedMonitor || MpvPaperI18n.tr("No Monitors", "mpvpaper")
+                                        text: root.sameOnAllMonitors ? MpvPaperI18n.tr("All Monitors", "mpvpaper") : (root.selectedMonitor || MpvPaperI18n.tr("No Monitors", "mpvpaper"))
                                         font.pixelSize: Theme.fontSizeMedium
                                         horizontalAlignment: Text.AlignHCenter
                                         elide: Text.ElideRight
                                         wrapMode: Text.NoWrap
                                     }
-                                    DankActionButton { iconName: "chevron_right"; iconSize: 18; buttonSize: 30; onClicked: root.cycleMonitor(1) }
+                                    DankActionButton { iconName: "chevron_right"; iconSize: 18; buttonSize: 30; enabled: !root.sameOnAllMonitors; onClicked: root.cycleMonitor(1) }
                                 }
                             }
                         }
