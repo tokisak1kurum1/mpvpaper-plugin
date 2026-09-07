@@ -46,10 +46,10 @@ PluginComponent {
     }
 
     property var monitorVideos: pluginData.monitorVideos || {}
-    property var monitorPlaylists: pluginData.monitorPlaylists || {}
+    property bool sameOnAllMonitors: pluginData.sameOnAllMonitors || false
+    property string allMonitorsVideo: pluginData.allMonitorsVideo || ""
     property var processes: ({})
     property var previousScreenNames: []
-    property var playlistIndices: pluginData.playlistIndices || {}
     property bool ready: false
     property var pendingLaunches: ({})
     property bool isSyncing: false
@@ -65,8 +65,6 @@ PluginComponent {
     // Cache directory for extracted still frames used by matugen
     readonly property string stillFrameCacheDir: StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "") + "/DankMaterialShell/mpvpaper_stills"
     property string lastPaletteVideoPath: ""
-
-    property bool sameOnAllMonitors: pluginData.sameOnAllMonitors || false
 
     onPluginDataChanged: {
         MpvPaperI18n.language = pluginData.language || "en"
@@ -144,28 +142,62 @@ PluginComponent {
         return true
     }
 
-    function getEffectiveVideo(monitor) {
-        const playlist = monitorPlaylists[monitor]
-        if (playlist && Array.isArray(playlist) && playlist.length > 0) {
-            let idx = playlistIndices[monitor]
-            if (idx === undefined) {
-                idx = 0
-                const indices = Object.assign({}, playlistIndices)
-                indices[monitor] = idx
-                playlistIndices = indices
-            }
-            if (idx < 0 || idx >= playlist.length) {
-                idx = 0
-                const indices = Object.assign({}, playlistIndices)
-                indices[monitor] = idx
-                playlistIndices = indices
-                if (pluginService && pluginService.savePluginData) {
-                    pluginService.savePluginData(pluginId, "playlistIndices", indices)
-                }
-            }
-            return playlist[idx]
+    function migrateLegacyVideoLibrary() {
+        const canSave = pluginService && pluginService.savePluginData
+        const existingLibrary = Array.isArray(pluginData.videoLibrary) ? pluginData.videoLibrary : []
+        const library = []
+
+        for (const path of existingLibrary) {
+            if (path && library.indexOf(path) === -1) library.push(path)
         }
-        return (pluginData.monitorVideos || {})[monitor] || ""
+
+        const legacyPlaylists = pluginData.monitorPlaylists || {}
+        const legacyIndices = pluginData.playlistIndices || {}
+        const videos = Object.assign({}, pluginData.monitorVideos || {})
+
+        for (const monitor in legacyPlaylists) {
+            const list = legacyPlaylists[monitor]
+            if (!Array.isArray(list)) continue
+
+            for (const path of list) {
+                if (path && library.indexOf(path) === -1) library.push(path)
+            }
+
+            if (list.length > 0) {
+                let index = legacyIndices[monitor] ?? 0
+                if (index < 0 || index >= list.length) index = 0
+                if (list[index]) videos[monitor] = list[index]
+            }
+        }
+
+        for (const monitor in videos) {
+            const path = videos[monitor]
+            if (path && library.indexOf(path) === -1) library.push(path)
+        }
+
+        if (!deepEqual(existingLibrary, library)) {
+            pluginData.videoLibrary = library
+            if (canSave) pluginService.savePluginData(pluginId, "videoLibrary", library)
+        }
+
+        if (!deepEqual(pluginData.monitorVideos || {}, videos)) {
+            pluginData.monitorVideos = videos
+            if (canSave) pluginService.savePluginData(pluginId, "monitorVideos", videos)
+        }
+
+        if (Object.keys(legacyPlaylists).length > 0) {
+            pluginData.monitorPlaylists = {}
+            if (canSave) pluginService.savePluginData(pluginId, "monitorPlaylists", {})
+        }
+        if (Object.keys(legacyIndices).length > 0) {
+            pluginData.playlistIndices = {}
+            if (canSave) pluginService.savePluginData(pluginId, "playlistIndices", {})
+        }
+    }
+
+    function getEffectiveVideo(monitor) {
+        if (sameOnAllMonitors && allMonitorsVideo) return allMonitorsVideo
+        return monitorVideos[monitor] || ""
     }
 
     function syncVideosWithData() {
@@ -177,60 +209,29 @@ PluginComponent {
             console.warn("MpvPaper: Sync already in progress, skipping")
             return
         }
-        
+
         isSyncing = true
-        
-        // Refresh data from pluginData to ensure we have the latest from widget
+        if (Object.keys(pluginData.monitorPlaylists || {}).length > 0 || Object.keys(pluginData.playlistIndices || {}).length > 0) {
+            migrateLegacyVideoLibrary()
+        }
         monitorVideos = pluginData.monitorVideos || {}
-        monitorPlaylists = pluginData.monitorPlaylists || {}
-        playlistIndices = pluginData.playlistIndices || {}
         sameOnAllMonitors = pluginData.sameOnAllMonitors || false
-        
+        allMonitorsVideo = pluginData.allMonitorsVideo || ""
+
         const connectedMonitors = Quickshell.screens.map(screen => screen.name)
         console.info("MpvPaper: Syncing videos. Connected monitors:", JSON.stringify(connectedMonitors))
-        const effectiveVideos = {}
-        
-        let primaryVideo = ""
-        if (sameOnAllMonitors && connectedMonitors.length > 0) {
-            primaryVideo = getEffectiveVideo(connectedMonitors[0])
-            for (const monitor of connectedMonitors) {
-                if (primaryVideo) effectiveVideos[monitor] = primaryVideo
-            }
-        } else {
-            for (const monitor of connectedMonitors) {
-                const video = getEffectiveVideo(monitor)
-                if (video) effectiveVideos[monitor] = video
-            }
-        }
 
-        for (const monitor in monitorVideos) {
-            if (!effectiveVideos.hasOwnProperty(monitor) && !(monitorPlaylists[monitor] && monitorPlaylists[monitor].length > 0)) {
-                stopMpvPaper(monitor, false, "")
-            }
-        }
-
-        const newVideos = Object.assign({}, pluginData.monitorVideos || {})
-        let needsLaunch = false
-        
         for (const monitor of connectedMonitors) {
-            const newVideoPath = effectiveVideos[monitor]
+            const newVideoPath = getEffectiveVideo(monitor)
             const oldVideoPath = processes[monitor] ? processes[monitor].videoPath : ""
 
             if (!newVideoPath) {
-                if (processes[monitor]) {
-                    stopMpvPaper(monitor, false, "")
-                }
+                if (processes[monitor]) stopMpvPaper(monitor, false, "")
                 continue
             }
 
-            newVideos[monitor] = newVideoPath
             const newSettings = getEffectiveSettings(newVideoPath)
-
-            let oldSettings = null
-            if (processes[monitor] && processes[monitor].videoPath === oldVideoPath) {
-                oldSettings = processes[monitor].settings
-            }
-
+            const oldSettings = processes[monitor] ? processes[monitor].settings : null
             const videoChanged = newVideoPath !== oldVideoPath
             const settingsChanged = !deepEqual(newSettings || {}, oldSettings || {})
             const processNotRunning = !processes[monitor]
@@ -241,23 +242,12 @@ PluginComponent {
             if ((videoChanged || settingsChanged || processNotRunning) && !isPending) {
                 try {
                     launchMpvPaper(monitor, newVideoPath)
-                    needsLaunch = true
                 } catch (e) {
                     console.error("MpvPaper: Failed to launch for", monitor, ":", e)
                 }
             }
         }
 
-        // Only save if data actually changed
-        const dataChanged = !deepEqual(pluginData.monitorVideos || {}, newVideos)
-        if (dataChanged && !needsLaunch) {
-            pluginData.monitorVideos = newVideos
-            if (pluginService && pluginService.savePluginData) {
-                pluginService.savePluginData(pluginId, "monitorVideos", newVideos)
-            }
-        }
-        monitorVideos = newVideos
-        
         isSyncing = false
     }
 
@@ -603,22 +593,8 @@ PluginComponent {
 
     // --- Still frame extraction for palette update ---
     function updateWallpaperPalette(monitor, videoPath) {
-        // Only update palette for the primary monitor (or the first one)
-        // to avoid redundant matugen runs on multi-monitor setups
-        var screens = Quickshell.screens
-        var targetMonitor = ""
-        if (typeof SettingsData !== "undefined" && SettingsData.matugenTargetMonitor && SettingsData.matugenTargetMonitor !== "") {
-            targetMonitor = SettingsData.matugenTargetMonitor
-        } else if (screens.length > 0) {
-            targetMonitor = screens[0].name
-        }
-
-        // Only update palette if this is the target monitor for matugen
-        if (targetMonitor && monitor !== targetMonitor) {
-            console.info("MpvPaper: Skipping palette update for", monitor, "(target is", targetMonitor, ")")
-            return
-        }
-
+        // Whichever monitor changes video most recently becomes
+        // the source for the global Dynamic palette.
         // Don't re-extract if the video hasn't changed
         if (videoPath === lastPaletteVideoPath) {
             console.info("MpvPaper: Palette already up-to-date for", videoPath)
@@ -659,8 +635,20 @@ PluginComponent {
             onExited: (code) => {
                 if (code === 0) {
                     console.info("MpvPaper: Still frame extracted, updating DMS wallpaper palette:", outputPath)
-                    if (typeof SessionData !== "undefined") {
-                        SessionData.setWallpaper(outputPath)
+                    // Generate the Dynamic theme directly from the extracted frame.
+                    // This keeps DMS per-monitor wallpaper assignments untouched.
+                    if (typeof Theme !== "undefined" && Theme.currentTheme === Theme.dynamic) {
+                        const isLight = typeof SessionData !== "undefined"
+                            ? SessionData.isLightMode
+                            : false
+                        const iconTheme = typeof SettingsData !== "undefined" && SettingsData.iconTheme
+                            ? SettingsData.iconTheme
+                            : "System Default"
+                        const matugenType = typeof SettingsData !== "undefined" && SettingsData.matugenScheme
+                            ? SettingsData.matugenScheme
+                            : "scheme-tonal-spot"
+
+                        Theme.setDesiredTheme("image", outputPath, isLight, iconTheme, matugenType)
                     }
                 } else {
                     console.warn("MpvPaper: Failed to extract still frame (exit code:", code, ") from", videoPath)
@@ -672,6 +660,7 @@ PluginComponent {
 
     Component.onCompleted: {
         MpvPaperI18n.language = pluginData.language || "en"
+        migrateLegacyVideoLibrary()
 
         previousScreenNames = Quickshell.screens.map(screen => screen.name)
         console.info("MpvPaper Daemon: Starting...")

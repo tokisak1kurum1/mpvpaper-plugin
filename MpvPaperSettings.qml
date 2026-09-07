@@ -46,6 +46,7 @@ PluginSettings {
         playlistVersion++
     }
 
+
     StyledText {
         text: MpvPaperI18n.tr("MpvPaper Plugin", "mpvpaper")
         font.pixelSize: Theme.fontSizeLarge
@@ -105,17 +106,23 @@ PluginSettings {
             anchors.verticalCenter: parent.verticalCenter
         }
         
-        Switch {
+        DankToggle {
             id: sameOnAllMonitorsSwitch
             anchors.verticalCenter: parent.verticalCenter
             checked: root.sameOnAllMonitors
-            
-            onCheckedChanged: {
-                if (checked === root.sameOnAllMonitors) return
-                root.sameOnAllMonitors = checked
-                if (pluginService) {
-                    pluginService.savePluginData("mpvpaper", "sameOnAllMonitors", checked)
+
+            onToggled: isChecked => {
+                if (isChecked === root.sameOnAllMonitors) return
+                if (isChecked && !root.loadValue("allMonitorsVideo", "")) {
+                    const monitorVideos = root.loadValue("monitorVideos", {})
+                    const sourceVideo = monitorVideos[root.selectedMonitor] || ""
+                    if (sourceVideo) root.saveValue("allMonitorsVideo", sourceVideo)
                 }
+                root.sameOnAllMonitors = isChecked
+                if (pluginService) {
+                    pluginService.savePluginData("mpvpaper", "sameOnAllMonitors", isChecked)
+                }
+                currentVideoRefresh++
             }
         }
     }
@@ -207,18 +214,15 @@ PluginSettings {
         }
 
         model: {
-            var v = playlistVersion
+            playlistVersion
+            currentVideoRefresh
             return getPlaylist()
         }
 
         onModelChanged: {
-            // Update currentIndex when model changes
             const currentPath = getCurrentVideoPath()
             const playlist = getPlaylist()
-            const idx = playlist.indexOf(currentPath)
-            if (idx !== -1) {
-                currentIndex = idx
-            }
+            currentIndex = playlist.indexOf(currentPath)
         }
 
         delegate: Item {
@@ -758,11 +762,11 @@ PluginSettings {
             if (code === 0 && trimmedOutput !== "") {
                 const files = trimmedOutput.split('\n').map(f => f.trim()).filter(f => f !== "")
                 if (files.length > 0) {
-                    addMultipleToPlaylist(files)
-                    if (files.length === 1) {
-                        ToastService.showInfo(MpvPaperI18n.tr("Video Added", "mpvpaper"), files[0].substring(files[0].lastIndexOf('/') + 1))
-                    } else {
-                        ToastService.showInfo(MpvPaperI18n.tr("Video Added", "mpvpaper"), MpvPaperI18n.tr("Successfully added %1 videos", "mpvpaper").arg(files.length))
+                    const addedCount = addMultipleToPlaylist(files)
+                    if (addedCount === 1) {
+                        ToastService.showInfo(MpvPaperI18n.tr("Video Added", "mpvpaper"), MpvPaperI18n.tr("Successfully added %1 videos", "mpvpaper").arg(addedCount))
+                    } else if (addedCount > 1) {
+                        ToastService.showInfo(MpvPaperI18n.tr("Video Added", "mpvpaper"), MpvPaperI18n.tr("Successfully added %1 videos", "mpvpaper").arg(addedCount))
                     }
                 }
             } else if (trimmedOutput.includes("ERROR")) {
@@ -829,8 +833,10 @@ PluginSettings {
             if (code === 0 && scanOutput.trim() !== "") {
                 const files = scanOutput.trim().split('\n').filter(f => f.trim() !== "")
                 if (files.length > 0) {
-                    addMultipleToPlaylist(files)
-                    ToastService.showInfo(MpvPaperI18n.tr("Folder Added", "mpvpaper"), MpvPaperI18n.tr("Added %1 videos from directory", "mpvpaper").arg(files.length))
+                    const addedCount = addMultipleToPlaylist(files)
+                    if (addedCount > 0) {
+                        ToastService.showInfo(MpvPaperI18n.tr("Folder Added", "mpvpaper"), MpvPaperI18n.tr("Added %1 videos from directory", "mpvpaper").arg(addedCount))
+                    }
                 } else {
                     ToastService.showWarning(MpvPaperI18n.tr("No Videos Found", "mpvpaper"), MpvPaperI18n.tr("No supported video files found in selected folder", "mpvpaper"))
                 }
@@ -840,43 +846,24 @@ PluginSettings {
     }
 
     function addMultipleToPlaylist(videoPaths) {
-        if (!videoPaths || videoPaths.length === 0) return
-        
-        var playlists = loadValue("monitorPlaylists", {})
-        if (!playlists[selectedMonitor]) {
-            playlists[selectedMonitor] = []
-        }
-        
+        if (!videoPaths || videoPaths.length === 0) return 0
+
+        var library = getPlaylist().slice()
         let addedCount = 0
-        let lastAdded = ""
-        
+
         for (const path of videoPaths) {
             const trimmedPath = path.trim()
-            if (trimmedPath && playlists[selectedMonitor].indexOf(trimmedPath) === -1) {
-                playlists[selectedMonitor].push(trimmedPath)
+            if (trimmedPath && library.indexOf(trimmedPath) === -1) {
+                library.push(trimmedPath)
                 addedCount++
-                lastAdded = trimmedPath
             }
         }
-        
-        if (addedCount > 0) {
-            saveValue("monitorPlaylists", playlists)
 
-            var indices = loadValue("playlistIndices", {})
-            indices[selectedMonitor] = playlists[selectedMonitor].indexOf(lastAdded)
-            saveValue("playlistIndices", indices)
-            
-            // Set the last added video as current
-            var monitorVideos = loadValue("monitorVideos", {})
-            monitorVideos[selectedMonitor] = lastAdded
-            saveValue("monitorVideos", monitorVideos)
-            
+        if (addedCount > 0) {
+            saveValue("videoLibrary", library)
             playlistVersion++
-            // Trigger UI refresh
-            var currentMonitor = selectedMonitor
-            selectedMonitor = ""
-            selectedMonitor = currentMonitor
         }
+        return addedCount
     }
 
     function addToPlaylist(videoPath) {
@@ -884,96 +871,45 @@ PluginSettings {
     }
 
     function setCurrentVideo(videoPath) {
-        // Find the index of this video in the playlist
-        var playlists = loadValue("monitorPlaylists", {})
-        var playlist = playlists[selectedMonitor]
-        
-        if (playlist && Array.isArray(playlist)) {
-            var videoIndex = playlist.indexOf(videoPath)
-            if (videoIndex !== -1) {
-                // Save the index so the plugin backend uses it
-                var indices = loadValue("playlistIndices", {})
-                indices[selectedMonitor] = videoIndex
-                saveValue("playlistIndices", indices)
-                
-                // Update GridView currentIndex
-                videoGridView.currentIndex = videoIndex
-            }
+        if (!videoPath || getPlaylist().indexOf(videoPath) === -1) return
+
+        if (sameOnAllMonitors) {
+            saveValue("allMonitorsVideo", videoPath)
+        } else {
+            var monitorVideos = loadValue("monitorVideos", {})
+            if (selectedMonitor) monitorVideos[selectedMonitor] = videoPath
+            saveValue("monitorVideos", monitorVideos)
         }
-        
-        // Set as current video
-        var monitorVideos = loadValue("monitorVideos", {})
-        monitorVideos[selectedMonitor] = videoPath
-        saveValue("monitorVideos", monitorVideos)
-        
-        // Trigger refresh using the same method as addToPlaylist
-        playlistVersion++
-        var currentMonitor = selectedMonitor
-        selectedMonitor = ""
-        selectedMonitor = currentMonitor
+
+        videoGridView.currentIndex = getPlaylist().indexOf(videoPath)
+        currentVideoRefresh++
     }
 
     function removeFromPlaylist(index) {
-        var playlists = loadValue("monitorPlaylists", {})
-        var list = playlists[selectedMonitor]
-        if (!Array.isArray(list) || index < 0 || index >= list.length) return
-        
-        // Get the video path before removing
-        var videoPath = list[index]
-        
-        // Delete thumbnail cache for this video
+        var library = getPlaylist().slice()
+        if (index < 0 || index >= library.length) return
+
+        const videoPath = library[index]
         deleteThumbnailCache(videoPath)
-        
-        // Remove from list
-        list.splice(index, 1)
-        
-        if (list.length === 0) {
-            // No videos left, clear everything
-            delete playlists[selectedMonitor]
-            saveValue("monitorPlaylists", playlists)
-            
-            var monitorVideos = loadValue("monitorVideos", {})
-            delete monitorVideos[selectedMonitor]
-            saveValue("monitorVideos", monitorVideos)
-            
-            // Clear playlist index
-            var indices = loadValue("playlistIndices", {})
-            delete indices[selectedMonitor]
-            saveValue("playlistIndices", indices)
-        } else {
-            // Update playlist
-            playlists[selectedMonitor] = list
-            saveValue("monitorPlaylists", playlists)
-            
-            // Update current video and index
-            var currentVideoPath = getCurrentVideoPath()
-            var currentIndex = list.indexOf(currentVideoPath)
-            
-            if (currentIndex === -1) {
-                // Current video was removed, switch to first video
-                currentIndex = 0
-                var monitorVideos = loadValue("monitorVideos", {})
-                monitorVideos[selectedMonitor] = list[0]
-                saveValue("monitorVideos", monitorVideos)
-            } else if (index < currentIndex) {
-                // A video before current was removed, adjust index
-                currentIndex = currentIndex - 1
+        library.splice(index, 1)
+        saveValue("videoLibrary", library)
+
+        var monitorVideos = loadValue("monitorVideos", {})
+        let assignmentsChanged = false
+        for (const monitor in monitorVideos) {
+            if (monitorVideos[monitor] === videoPath) {
+                delete monitorVideos[monitor]
+                assignmentsChanged = true
             }
-            
-            // Update playlist index
-            var indices = loadValue("playlistIndices", {})
-            indices[selectedMonitor] = currentIndex
-            saveValue("playlistIndices", indices)
-            
-            // Update GridView currentIndex
-            videoGridView.currentIndex = currentIndex
         }
-        
-        // Trigger refresh
+        if (assignmentsChanged) saveValue("monitorVideos", monitorVideos)
+        if (loadValue("allMonitorsVideo", "") === videoPath) {
+            saveValue("allMonitorsVideo", "")
+        }
+
         playlistVersion++
-        var currentMonitor = selectedMonitor
-        selectedMonitor = ""
-        selectedMonitor = currentMonitor
+        currentVideoRefresh++
+        videoGridView.currentIndex = library.indexOf(getCurrentVideoPath())
     }
     
     function deleteThumbnailCache(videoPath) {
@@ -1000,22 +936,15 @@ PluginSettings {
     }
 
     function clearPlaylist() {
-        var playlists = loadValue("monitorPlaylists", {})
-        delete playlists[selectedMonitor]
-        saveValue("monitorPlaylists", playlists)
-        
-        var monitorVideos = loadValue("monitorVideos", {})
-        delete monitorVideos[selectedMonitor]
-        saveValue("monitorVideos", monitorVideos)
+        const library = getPlaylist()
+        for (const videoPath of library) deleteThumbnailCache(videoPath)
 
-        var indices = loadValue("playlistIndices", {})
-        delete indices[selectedMonitor]
-        saveValue("playlistIndices", indices)
-        
+        saveValue("videoLibrary", [])
+        saveValue("monitorVideos", {})
+        saveValue("allMonitorsVideo", "")
         playlistVersion++
-        var currentMonitor = selectedMonitor
-        selectedMonitor = ""
-        selectedMonitor = currentMonitor
+        currentVideoRefresh++
+        videoGridView.currentIndex = -1
     }
 
     function getVideoSettings() {
@@ -1045,13 +974,17 @@ PluginSettings {
 
     function getCurrentVideoPath() {
         var monitorVideos = loadValue("monitorVideos", {})
+
+        if (sameOnAllMonitors) {
+            return loadValue("allMonitorsVideo", "")
+        }
+
         return monitorVideos[selectedMonitor] || ""
     }
 
     function getPlaylist() {
-        var playlists = loadValue("monitorPlaylists", {})
-        var list = playlists[selectedMonitor]
-        return Array.isArray(list) ? list : []
+        var library = loadValue("videoLibrary", [])
+        return Array.isArray(library) ? library : []
     }
 
     FileBrowserSurfaceModal {

@@ -6,7 +6,7 @@ A DMS 1.5 composite plugin for video wallpapers. One installation provides both 
 
 ## Features
 
-- Independent video playlists for multiple monitors
+- One shared, deduplicated video library with independent wallpaper selection per monitor
 - Included DankBar widget for browsing and switching wallpapers
 - Hardware decoding with `auto`, `nvdec`, `vaapi`, and `vdpau` modes
 - Automatic playback-process restart with a configurable interval
@@ -32,7 +32,7 @@ yay -S mpvpaper
 2. Open the plugin settings to add videos, select a monitor, and configure playback.
 3. In the DankBar layout settings, add **MpvPaper Plugin** to use the included widget.
 
-The daemon and DankBar widget share the same playlists and settings.
+The settings page and DankBar widget share one global video library. Each monitor stores only its current wallpaper selection; **All** applies the next selection to every connected monitor.
 
 ## License
 

@@ -25,6 +25,15 @@ PluginComponent {
     }
     property int currentPage: 0
     property int itemsPerPage: 8  // 2x4 grid
+    readonly property real popoutPadding: Theme.spacingM
+    readonly property real popoutContentWidth: popoutWidth - popoutPadding * 2
+    readonly property real popoutGridCellHeight: Math.floor(popoutContentWidth / 4) * 9 / 16
+    readonly property real naturalPopoutHeight: popoutPadding * 2
+        + 32
+        + (monitors.length > 1 ? 40 + Theme.spacingM : 0)
+        + popoutGridCellHeight * 2
+        + Theme.spacingM * 2
+        + 40
     property int totalPages: Math.max(1, Math.ceil(getPlaylist().length / itemsPerPage))
     property int refreshTrigger: 0
     property int gridIndex: 0
@@ -57,6 +66,7 @@ PluginComponent {
         onTriggered: root.syncSelectionToPlayback()
     }
 
+
     function syncSelectionToPlayback() {
         const currentPath = getCurrentVideoPath()
         const playlist = getPlaylist()
@@ -68,9 +78,8 @@ PluginComponent {
 
     function getPlaylist() {
         if (!pluginService) return []
-        const playlists = pluginService.loadPluginData("mpvpaper", "monitorPlaylists", {})
-        var list = playlists[selectedMonitor]
-        return Array.isArray(list) ? list : []
+        const library = pluginService.loadPluginData("mpvpaper", "videoLibrary", [])
+        return Array.isArray(library) ? library : []
     }
 
     function cycleMonitor(offset) {
@@ -83,48 +92,29 @@ PluginComponent {
 
     function getCurrentVideoPath() {
         if (!pluginService) return ""
-        const playlists = pluginService.loadPluginData("mpvpaper", "monitorPlaylists", {})
-        const playlist = playlists[selectedMonitor]
-        if (Array.isArray(playlist) && playlist.length > 0) {
-            const indices = pluginService.loadPluginData("mpvpaper", "playlistIndices", {})
-            const index = indices[selectedMonitor] ?? 0
-            if (index >= 0 && index < playlist.length) return playlist[index]
-        }
         const monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
+
+        if (sameOnAllMonitors) {
+            return pluginService.loadPluginData("mpvpaper", "allMonitorsVideo", "")
+        }
+
         return monitorVideos[selectedMonitor] || ""
     }
 
     function setCurrentVideo(videoPath) {
-        if (!pluginService) return
-        
-        const targetMonitors = sameOnAllMonitors ? monitors : [selectedMonitor]
-        
-        for (const mon of targetMonitors) {
-            const playlists = pluginService.loadPluginData("mpvpaper", "monitorPlaylists", {})
-            var playlist = playlists[mon]
-            
-            if (playlist && Array.isArray(playlist)) {
-                var videoIndex = playlist.indexOf(videoPath)
-                if (videoIndex !== -1) {
-                    const indices = pluginService.loadPluginData("mpvpaper", "playlistIndices", {})
-                    indices[mon] = videoIndex
-                    pluginService.savePluginData("mpvpaper", "playlistIndices", indices)
-                    
-                    if (mon === selectedMonitor) {
-                        const startIndex = root.currentPage * root.itemsPerPage
-                        const relativeIndex = videoIndex - startIndex
-                        if (relativeIndex >= 0 && relativeIndex < root.itemsPerPage) {
-                            root.gridIndex = relativeIndex
-                        }
-                    }
-                }
-            }
-            
+        if (!pluginService || !videoPath || getPlaylist().indexOf(videoPath) === -1) return
+
+        if (sameOnAllMonitors) {
+            pluginService.savePluginData("mpvpaper", "allMonitorsVideo", videoPath)
+        } else {
             const monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
-            monitorVideos[mon] = videoPath
+            if (selectedMonitor) monitorVideos[selectedMonitor] = videoPath
             pluginService.savePluginData("mpvpaper", "monitorVideos", monitorVideos)
         }
-        
+
+        const videoIndex = getPlaylist().indexOf(videoPath)
+        currentPage = Math.floor(videoIndex / itemsPerPage)
+        gridIndex = videoIndex % itemsPerPage
         root.refreshTrigger++
     }
 
@@ -134,24 +124,18 @@ PluginComponent {
     }
 
     function addToPlaylist(videoPath) {
-        if (!pluginService) return
-        
-        const targetMonitors = sameOnAllMonitors ? monitors : [selectedMonitor]
-        
-        for (const mon of targetMonitors) {
-            const playlists = pluginService.loadPluginData("mpvpaper", "monitorPlaylists", {})
-            if (!playlists[mon]) playlists[mon] = []
-            if (playlists[mon].indexOf(videoPath) !== -1) continue
-            playlists[mon].push(videoPath)
-            pluginService.savePluginData("mpvpaper", "monitorPlaylists", playlists)
-            const indices = pluginService.loadPluginData("mpvpaper", "playlistIndices", {})
-            indices[mon] = playlists[mon].indexOf(videoPath)
-            pluginService.savePluginData("mpvpaper", "playlistIndices", indices)
-            const monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
-            monitorVideos[mon] = videoPath
-            pluginService.savePluginData("mpvpaper", "monitorVideos", monitorVideos)
-        }
+        if (!pluginService || !videoPath) return false
+
+        const trimmedPath = videoPath.trim()
+        if (!trimmedPath) return false
+
+        const library = getPlaylist().slice()
+        if (library.indexOf(trimmedPath) !== -1) return false
+
+        library.push(trimmedPath)
+        pluginService.savePluginData("mpvpaper", "videoLibrary", library)
         refreshTrigger++
+        return true
     }
 
     Process {
@@ -211,14 +195,11 @@ PluginComponent {
                 if (root.fileBrowserParentPopout === mpvPaperPopout)
                     root.fileBrowserParentPopout = null
             }
-            headerText: MpvPaperI18n.tr("Video Wallpaper", "mpvpaper")
-            detailsText: {
-                root.refreshTrigger
-                const playlist = root.getPlaylist()
-                if (playlist.length === 0) return MpvPaperI18n.tr("No Wallpapers", "mpvpaper")
-                return MpvPaperI18n.tr("%1 Wallpapers • Page %2/%3", "mpvpaper").arg(playlist.length).arg(root.currentPage + 1).arg(root.totalPages)
-            }
-            showCloseButton: true
+            // Keep the built-in PopoutComponent header empty.  This plugin uses
+            // a single custom header row so every section shares one padding grid.
+            headerText: ""
+            detailsText: ""
+            showCloseButton: false
 
             Connections {
                 target: popout.parentPopout
@@ -235,7 +216,45 @@ PluginComponent {
 
                 Column {
                     anchors.fill: parent
+                    anchors.margins: root.popoutPadding
                     spacing: Theme.spacingM
+
+                    // Compact single-line header.  Title, controls, grid and footer
+                    // all start/end on the same content bounds.
+                    Item {
+                        width: parent.width
+                        height: 32
+
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: Theme.spacingS
+
+                            StyledText {
+                                text: MpvPaperI18n.tr("Video Wallpaper", "mpvpaper")
+                                font.pixelSize: Theme.fontSizeLarge
+                                font.weight: Font.Bold
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            StyledText {
+                                text: MpvPaperI18n.tr("%1 wallpapers", "mpvpaper").arg(root.getPlaylist().length)
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.surfaceText
+                                opacity: 0.6
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            DankActionButton {
+                                iconName: "close"
+                                iconSize: 18
+                                buttonSize: 32
+                                opacity: 0.8
+                                onClicked: mpvPaperPopout.close()
+                            }
+                        }
+                    }
 
                     // Monitor selector
                     Item {
@@ -244,8 +263,6 @@ PluginComponent {
                         visible: root.monitors.length > 1
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: Theme.spacingS
-                            anchors.rightMargin: Theme.spacingS
                             spacing: Theme.spacingM
 
                             // "Same on all" toggle
@@ -278,10 +295,19 @@ PluginComponent {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        root.sameOnAllMonitors = !root.sameOnAllMonitors
+                                        const enabling = !root.sameOnAllMonitors
+                                        if (pluginService && enabling && !pluginService.loadPluginData("mpvpaper", "allMonitorsVideo", "")) {
+                                            const monitorVideos = pluginService.loadPluginData("mpvpaper", "monitorVideos", {})
+                                            const sourceVideo = monitorVideos[root.selectedMonitor] || ""
+                                            if (sourceVideo) {
+                                                pluginService.savePluginData("mpvpaper", "allMonitorsVideo", sourceVideo)
+                                            }
+                                        }
+                                        root.sameOnAllMonitors = enabling
                                         if (pluginService) {
                                             pluginService.savePluginData("mpvpaper", "sameOnAllMonitors", root.sameOnAllMonitors)
                                         }
+                                        root.refreshTrigger++
                                     }
                                 }
                             }
@@ -406,15 +432,55 @@ PluginComponent {
                         }
                     }
 
-                    // Bottom Navigation
-                    RowLayout {
-                        width: parent.width; height: 40; spacing: Theme.spacingM
-                        Item { width: Theme.spacingS; height: 1 }
-                        DankActionButton { iconName: "skip_previous"; iconSize: 18; buttonSize: 32; enabled: root.currentPage > 0; opacity: enabled ? 0.8 : 0.2; onClicked: { root.currentPage--; root.gridIndex = 0 } }
-                        StyledText { text: MpvPaperI18n.tr("Page %1/%2", "mpvpaper").arg(root.currentPage + 1).arg(root.totalPages); font.pixelSize: 12; color: Theme.surfaceText; opacity: 0.7; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                        DankActionButton { iconName: "skip_next"; iconSize: 18; buttonSize: 32; enabled: root.currentPage < root.totalPages - 1; opacity: enabled ? 0.8 : 0.2; onClicked: { root.currentPage++; root.gridIndex = 0 } }
-                        DankActionButton { iconName: "folder_open"; iconSize: 18; buttonSize: 32; opacity: 0.7; onClicked: root.openSystemFilePicker() }
-                        Item { width: Theme.spacingS; height: 1 }
+                    // Bottom navigation: the pager is geometrically centered;
+                    // the library button is independently pinned to the right.
+                    Item {
+                        width: parent.width
+                        height: 40
+
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: Theme.spacingS
+
+                            DankActionButton {
+                                iconName: "chevron_left"
+                                iconSize: 18
+                                buttonSize: 32
+                                enabled: root.currentPage > 0
+                                opacity: enabled ? 0.8 : 0.2
+                                onClicked: { root.currentPage--; root.gridIndex = 0 }
+                            }
+
+                            StyledText {
+                                width: 56
+                                height: 32
+                                text: (root.currentPage + 1) + " / " + root.totalPages
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.surfaceText
+                                opacity: 0.65
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            DankActionButton {
+                                iconName: "chevron_right"
+                                iconSize: 18
+                                buttonSize: 32
+                                enabled: root.currentPage < root.totalPages - 1
+                                opacity: enabled ? 0.8 : 0.2
+                                onClicked: { root.currentPage++; root.gridIndex = 0 }
+                            }
+                        }
+
+                        DankActionButton {
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            iconName: "folder_open"
+                            iconSize: 18
+                            buttonSize: 32
+                            opacity: 0.7
+                            onClicked: root.openSystemFilePicker()
+                        }
                     }
                 }
 
@@ -452,5 +518,5 @@ PluginComponent {
     }
 
     popoutWidth: 600
-    popoutHeight: 360
+    popoutHeight: Math.ceil(naturalPopoutHeight)
 }
