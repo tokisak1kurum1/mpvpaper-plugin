@@ -7,7 +7,6 @@ const translations = {
     "zh_CN": {
         "mpvpaper": {
             "MpvPaper Plugin": "MpvPaper 插件",
-            "MPV Wallpaper": "MpvPaper 插件",
             "General": "基本设置",
             "Language": "语言",
             "Simplified Chinese": "简体中文",
@@ -55,31 +54,10 @@ const translations = {
             "Added %1 videos from directory": "从目录中导入了 %1 个视频",
             "No Videos Found": "未找到视频",
             "No supported video files found in selected folder": "所选文件夹中没有支持的视频格式",
-            "Select Video to Add to Playlist": "选择视频添加到列表",
-            "Select Video": "选择视频文件",
-            "Close": "关闭",
-            "Back": "返回",
-            "Home": "主目录",
-            "Videos": "视频",
-            "Downloads": "下载",
-            "Enter path...": "输入路径...",
-            "Go": "前往",
-            "Root": "根目录",
-            "Search current directory...": "搜索当前目录...",
-            "Refresh": "刷新",
-            "%1 folders, %2 videos": "%1 个文件夹，%2 个视频",
-            "Folder": "文件夹",
-            "Video File": "视频文件",
-            "No matching items": "没有匹配的项目",
-            "This directory is empty": "此目录为空",
             "Video Wallpaper": "视频壁纸",
             "%1 wallpapers": "%1 个壁纸",
-            "No Wallpapers": "暂无壁纸",
-            "%1 Wallpapers • Page %2/%3": "共 %1 个壁纸 • 第 %2/%3 页",
-            "Page %1/%2": "第 %1/%2 页",
             "MpvPaper Error": "播放器异常",
-            "Video playback failed on %1": "显示器 %1 上的视频播放失败",
-            "Play videos as desktop wallpapers with multi-monitor support and playlist management.": "高性能桌面视频壁纸插件，支持多显示器和共享视频库管理。"
+            "Video playback failed on %1": "显示器 %1 上的视频播放失败"
         }
     }
 }
