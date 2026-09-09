@@ -7,17 +7,19 @@ A DMS 1.5 composite plugin for video wallpapers. One installation provides both 
 ## Features
 
 - One shared, deduplicated video library with independent wallpaper selection per monitor
+- Smooth wallpaper switching through persistent mpv IPC with a guarded fade transition
 - Included DankBar widget for browsing and switching wallpapers
 - Hardware decoding with `auto`, `nvdec`, `vaapi`, and `vdpau` modes
-- Automatic playback-process restart with a configurable interval
-- Automatic playback pause while the DMS lock screen is active
+- Configurable playback-process restart interval
+- Configurable lock-screen behavior: stop the player or pause playback in place
+- Dynamic palette extraction using runtime-only temporary frames
 - English and Simplified Chinese settings
 
 ## Requirements
 
 - DMS 1.5.0 or later
 - [`mpvpaper`](https://github.com/GhostNaN/mpvpaper)
-- `ffmpeg` for video thumbnails
+- `ffmpeg` for video thumbnails and dynamic palette extraction
 
 On Arch Linux:
 
