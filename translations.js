@@ -32,6 +32,7 @@ const translations = {
             "Lock Screen Behavior": "锁屏行为",
             "Close Player": "关闭播放器",
             "Pause Playback": "暂停播放",
+            "Pause on Fullscreen": "全屏时暂停播放",
             "Scheduled Restart Interval": "自动重载间隔",
             "Disabled": "已禁用",
             "10 Minutes": "10 分钟",

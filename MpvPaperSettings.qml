@@ -624,6 +624,35 @@ PluginSettings {
         }
     }
 
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+
+        StyledText {
+            text: MpvPaperI18n.tr("Pause on Fullscreen", "mpvpaper")
+            font.pixelSize: root.settingTitleSize
+            font.weight: Font.Medium
+            width: root.settingLabelWidth
+            anchors.verticalCenter: parent.verticalCenter
+        }
+
+        DankToggle {
+            id: pauseOnFullscreenToggle
+            anchors.verticalCenter: parent.verticalCenter
+
+            Binding {
+                target: pauseOnFullscreenToggle
+                property: "checked"
+                value: root.loadValue("pauseOnFullscreen", true)
+            }
+
+            onToggled: isChecked => {
+                if (isChecked !== root.loadValue("pauseOnFullscreen", true))
+                    root.saveValue("pauseOnFullscreen", isChecked)
+            }
+        }
+    }
+
     Column {
         width: parent.width
         spacing: Theme.spacingXS

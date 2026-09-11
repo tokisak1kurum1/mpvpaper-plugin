@@ -24,12 +24,14 @@ PluginComponent {
     property var transitions: ({})
     property var transitionOverlays: ({})
     property var transitionTimers: ({})
-    property var lockPausedMonitors: ({})
+    property var appliedPauseStates: ({})
     property int nextRequestId: 1
 
     property var previousScreenNames: []
     property bool ready: false
     property bool isSyncing: false
+    property var liveNiriWorkspaces: null
+    property bool liveNiriQueryInFlight: false
 
     property var restartTimers: ({})
     property var recoveryTimers: ({})
@@ -41,6 +43,9 @@ PluginComponent {
         ? 60
         : Number(pluginData.restartInterval)) * 60000
     readonly property string lockBehavior: pluginData.lockBehavior === "pause" ? "pause" : "stop"
+    readonly property bool pauseOnFullscreen: (pluginData.pauseOnFullscreen === undefined || pluginData.pauseOnFullscreen === null)
+        ? true
+        : !!pluginData.pauseOnFullscreen
 
     // Sockets and one-shot frames are runtime state only. Never fall back to
     // GenericCacheLocation: if RuntimeLocation is unavailable, hot switching
@@ -57,19 +62,12 @@ PluginComponent {
                 pauseAllVideosForLock()
             } else {
                 console.info("MpvPaper: Screen locked - stopping all videos")
-                lockPausedMonitors = ({})
+                appliedPauseStates = ({})
                 stopAllVideos()
             }
         } else {
-            if (Object.keys(lockPausedMonitors).length > 0) {
-                console.info("MpvPaper: Screen unlocked - resuming paused videos")
-                resumeVideosAfterLock()
-            } else {
-                console.info("MpvPaper: Screen unlocked - restoring videos")
-                Qt.callLater(() => {
-                    if (!isLocked) syncVideosWithData()
-                })
-            }
+            console.info("MpvPaper: Screen unlocked - restoring playback state")
+            resumeVideosAfterLock()
         }
     }
 
@@ -83,9 +81,16 @@ PluginComponent {
         if (newInterval !== restartInterval) {
             restartInterval = newInterval
             console.info("MpvPaper: Restart interval changed to", newInterval / 60000, "minutes")
-            for (const monitor in restartTimers) setupRestartTimer(monitor)
+            for (const monitor in processes) setupRestartTimer(monitor)
         }
+
+        if (isLocked && lockBehavior === "stop") {
+            stopAllVideos()
+            return
+        }
+
         syncDebounce.restart()
+        pauseStateDebounce.restart()
     }
 
     Timer {
@@ -93,6 +98,58 @@ PluginComponent {
         interval: 50
         repeat: false
         onTriggered: syncVideosWithData()
+    }
+
+    Timer {
+        id: pauseStateDebounce
+        interval: 50
+        repeat: false
+        onTriggered: syncPauseStates()
+    }
+
+    // NiriService can retain an old active_window_id while a horizontal page
+    // changes. Refresh only the state used by the pause predicate.
+    Timer {
+        id: niriPausePoll
+        interval: 500
+        repeat: true
+        running: root.ready
+            && root.pauseOnFullscreen
+            && CompositorService.isNiri
+            && !root.isLocked
+        onTriggered: root.refreshLiveNiriWorkspaces()
+    }
+
+    Connections {
+        target: CompositorService
+
+        function onToplevelsChanged() {
+            if (root.ready) pauseStateDebounce.restart()
+        }
+
+        function onCompositorChanged() {
+            if (root.ready) pauseStateDebounce.restart()
+        }
+    }
+
+    // Niri exposes the active workspace/window geometry through NiriService.
+    // Signals provide fast updates; the low-rate poll above is the recovery
+    // path for missed or reordered layout notifications.
+    Connections {
+        target: NiriService
+        enabled: CompositorService.isNiri
+
+        function onAllWorkspacesChanged() {
+            if (root.ready) pauseStateDebounce.restart()
+        }
+
+        function onWindowsChanged() {
+            if (root.ready) pauseStateDebounce.restart()
+        }
+
+        function onOutputsChanged() {
+            if (root.ready) pauseStateDebounce.restart()
+        }
     }
 
     Connections {
@@ -105,7 +162,7 @@ PluginComponent {
 
             for (const screenName of removedScreens) {
                 console.info("MpvPaper: Display disconnected:", screenName)
-                lockPausedMonitors = mapWithout(lockPausedMonitors, screenName)
+                appliedPauseStates = mapWithout(appliedPauseStates, screenName)
                 stopMpvPaper(screenName)
             }
 
@@ -118,6 +175,7 @@ PluginComponent {
             }
 
             previousScreenNames = currentScreenNames
+            pauseStateDebounce.restart()
         }
     }
 
@@ -290,6 +348,158 @@ PluginComponent {
         return null
     }
 
+    function refreshLiveNiriWorkspaces() {
+        if (!ready || !CompositorService.isNiri || liveNiriQueryInFlight) return
+
+        liveNiriQueryInFlight = true
+        Proc.runCommand(
+            "mpvpaper.niri.workspaces",
+            ["niri", "msg", "-j", "workspaces"],
+            (stdout, exitCode) => {
+                liveNiriQueryInFlight = false
+                if (exitCode !== 0) return
+
+                try {
+                    const workspaces = JSON.parse((stdout || "").trim())
+                    if (!Array.isArray(workspaces)) return
+                    liveNiriWorkspaces = workspaces
+                    syncPauseStates()
+                } catch (error) {
+                    return
+                }
+            },
+            0,
+            1000,
+            root
+        )
+    }
+
+    function niriActiveWindowCoversMonitor(monitor) {
+        const workspaces = liveNiriWorkspaces || NiriService.allWorkspaces
+        const windows = NiriService.windows
+        const activeWorkspace = workspaces.find(
+            workspace => workspace.output === monitor && workspace.is_active
+        )
+        if (!activeWorkspace
+                || activeWorkspace.active_window_id === null
+                || activeWorkspace.active_window_id === undefined) {
+            return false
+        }
+
+        const window = windows.find(
+            candidate => candidate && candidate.id === activeWorkspace.active_window_id
+        )
+        if (!window || window.is_floating) return false
+
+        const output = NiriService.outputs ? NiriService.outputs[monitor] : null
+        const logical = output ? output.logical : null
+        if (!logical || logical.width === undefined || logical.height === undefined)
+            return false
+
+        const size = window.layout?.tile_size || window.layout?.window_size
+        if (!size || size.length < 2) return false
+
+        const width = Number(size[0])
+        const height = Number(size[1])
+        const outputWidth = Number(logical.width)
+        const outputHeight = Number(logical.height)
+        if (!Number.isFinite(width) || !Number.isFinite(height)
+                || !Number.isFinite(outputWidth) || !Number.isFinite(outputHeight)) {
+            return false
+        }
+
+        const tolerance = 1
+        return Math.abs(width - outputWidth) <= tolerance
+            && Math.abs(height - outputHeight) <= tolerance
+    }
+
+    function genericFullscreenOnMonitor(monitor) {
+        if (typeof CompositorService.fullscreenToplevelOnScreen === "function")
+            return CompositorService.fullscreenToplevelOnScreen(monitor)
+        return false
+    }
+
+    function isFullscreenOnMonitor(monitor) {
+        if (!pauseOnFullscreen || !monitor) return false
+        if (CompositorService.isNiri) return niriActiveWindowCoversMonitor(monitor)
+        return genericFullscreenOnMonitor(monitor)
+    }
+
+    function shouldPauseMonitor(monitor) {
+        if (isLocked && lockBehavior === "pause") return true
+        if (isLocked) return false
+        return isFullscreenOnMonitor(monitor)
+    }
+
+    function pauseReasonForMonitor(monitor) {
+        if (isLocked && lockBehavior === "pause") return "lock"
+        if (!isLocked && isFullscreenOnMonitor(monitor)) return "fullscreen"
+        return ""
+    }
+
+    function applyMonitorPauseState(monitor, force) {
+        const process = processes[monitor]
+        if (!process) {
+            appliedPauseStates = mapWithout(appliedPauseStates, monitor)
+            return false
+        }
+
+        const shouldPause = shouldPauseMonitor(monitor)
+        if (shouldPause && transitions[monitor]) return false
+
+        const socket = ipcSockets[monitor]
+        if (!socket || !socket.connected || socket.ipcPath !== process.ipcPath) {
+            appliedPauseStates = mapWithout(appliedPauseStates, monitor)
+
+            if (shouldPause && isLocked && lockBehavior === "pause") {
+                console.warn("MpvPaper: Cannot pause", monitor, "through IPC - stopping player instead")
+                stopMpvPaper(monitor, false)
+            } else if (process.ipcPath) {
+                ensureIpcConnection(monitor, process.ipcPath)
+            }
+            return false
+        }
+
+        const currentState = appliedPauseStates[monitor]
+        if (!force
+                && currentState
+                && currentState.ipcPath === process.ipcPath
+                && currentState.paused === shouldPause) {
+            return true
+        }
+
+        sendIpc(socket, {
+            command: ["set_property", "pause", shouldPause]
+        })
+        appliedPauseStates = mapWith(appliedPauseStates, monitor, {
+            ipcPath: process.ipcPath,
+            paused: shouldPause
+        })
+
+        if (shouldPause) {
+            stopRestartTimer(monitor)
+            console.info("MpvPaper: Paused", monitor, "for", pauseReasonForMonitor(monitor))
+        } else {
+            setupRestartTimer(monitor)
+            console.info("MpvPaper: Resumed", monitor)
+        }
+        return true
+    }
+
+    function syncPauseStates() {
+        if (!ready) return
+
+        const connectedMonitors = Quickshell.screens.map(screen => screen.name)
+        for (const monitor in appliedPauseStates) {
+            if (connectedMonitors.indexOf(monitor) === -1 || !processes[monitor])
+                appliedPauseStates = mapWithout(appliedPauseStates, monitor)
+        }
+
+        for (const monitor of connectedMonitors) {
+            if (processes[monitor]) applyMonitorPauseState(monitor, false)
+        }
+    }
+
     function pendingMatches(monitor, videoPath, settings) {
         const pending = pendingSwitches[monitor]
         return pending
@@ -435,7 +645,7 @@ PluginComponent {
         destroyIpcConnection(monitor)
         pendingSwitches = mapWithout(pendingSwitches, monitor)
         pendingLaunches = mapWithout(pendingLaunches, monitor)
-        lockPausedMonitors = mapWithout(lockPausedMonitors, monitor)
+        appliedPauseStates = mapWithout(appliedPauseStates, monitor)
 
         const process = processes[monitor]
         if (process) {
@@ -457,54 +667,28 @@ PluginComponent {
         processes = ({})
         pendingSwitches = ({})
         pendingLaunches = ({})
-        lockPausedMonitors = ({})
+        appliedPauseStates = ({})
     }
 
     function pauseAllVideosForLock() {
-        lockPausedMonitors = ({})
         for (const monitor in restartTimers) stopRestartTimer(monitor)
 
         const monitors = Object.keys(processes)
         for (const monitor of monitors) {
             cancelTransition(monitor)
-
-            const process = processes[monitor]
-            const socket = ipcSockets[monitor]
-            if (!process || !socket || !socket.connected || socket.ipcPath !== process.ipcPath) {
-                console.warn("MpvPaper: Cannot pause", monitor, "through IPC - stopping player instead")
-                stopMpvPaper(monitor, false)
-                continue
-            }
-
-            sendIpc(socket, {
-                command: ["set_property", "pause", true]
-            })
-            lockPausedMonitors = mapWith(lockPausedMonitors, monitor, process.ipcPath)
+            applyMonitorPauseState(monitor, true)
         }
     }
 
     function resumeVideosAfterLock() {
-        const pausedMonitors = lockPausedMonitors
-        lockPausedMonitors = ({})
-
-        for (const monitor in pausedMonitors) {
-            const process = processes[monitor]
-            const socket = ipcSockets[monitor]
-            const expectedIpcPath = pausedMonitors[monitor]
-
-            if (!process || process.ipcPath !== expectedIpcPath || !socket || !socket.connected || socket.ipcPath !== expectedIpcPath) {
-                console.warn("MpvPaper: Paused player unavailable on unlock for", monitor, "- normal sync will restore it")
-                continue
-            }
-
-            sendIpc(socket, {
-                command: ["set_property", "pause", false]
-            })
-            setupRestartTimer(monitor)
-        }
+        const monitors = Object.keys(processes)
+        for (const monitor of monitors) applyMonitorPauseState(monitor, true)
 
         Qt.callLater(() => {
-            if (!isLocked) syncVideosWithData()
+            if (!isLocked) {
+                syncVideosWithData()
+                pauseStateDebounce.restart()
+            }
         })
     }
 
@@ -550,6 +734,11 @@ PluginComponent {
         if (process.launchSettingsKey !== processSettingsKey(pending.settings)) {
             pendingSwitches = mapWithout(pendingSwitches, monitor)
             forceRestartMpvPaper(monitor, pending.videoPath, pending.settings)
+            return
+        }
+
+        if (shouldPauseMonitor(monitor)) {
+            directHotSwitch(monitor, pending.videoPath, pending.settings)
             return
         }
 
@@ -618,6 +807,7 @@ PluginComponent {
         process.settings = settings
         clearPendingIfMatches(monitor, videoPath, settings)
         updatePlaybackStateAfterSwitch(monitor, videoPath, settings)
+        applyMonitorPauseState(monitor, true)
     }
 
     function updatePlaybackStateAfterSwitch(monitor, videoPath, settings) {
@@ -809,6 +999,7 @@ PluginComponent {
         transitions = mapWithout(transitions, monitor)
 
         cleanupRuntimePath(transition.framePath)
+        applyMonitorPauseState(monitor, true)
         Qt.callLater(() => {
             if (!isLocked) syncVideosWithData()
         })
@@ -1024,6 +1215,7 @@ PluginComponent {
         console.info("MpvPaper: IPC connected for", monitor)
         finishIpcRetry(monitor, ipcPath)
         flushPendingSwitch(monitor)
+        if (!transitions[monitor]) applyMonitorPauseState(monitor, false)
     }
 
     function handleIpcUnavailable(monitor, ipcPath) {
@@ -1178,7 +1370,7 @@ PluginComponent {
                     root.cancelTransition(monitor)
                     root.processes = root.mapWithout(root.processes, monitor)
                     root.destroyIpcConnection(monitor, ipcPath)
-                    root.lockPausedMonitors = root.mapWithout(root.lockPausedMonitors, monitor)
+                    root.appliedPauseStates = root.mapWithout(root.appliedPauseStates, monitor)
                 }
 
                 if (!stopping && code !== 0) {
@@ -1294,6 +1486,10 @@ PluginComponent {
             console.info("MpvPaper: Auto-restart disabled for", monitor)
             return
         }
+        if (shouldPauseMonitor(monitor)) {
+            console.info("MpvPaper: Auto-restart suspended while paused for", monitor)
+            return
+        }
 
         const timer = restartTimerComponent.createObject(root, {
             monitor: monitor,
@@ -1312,7 +1508,7 @@ PluginComponent {
             repeat: false
             onTriggered: {
                 const videoPath = root.getEffectiveVideo(monitor)
-                if (!root.isLocked && videoPath) {
+                if (!root.isLocked && !root.shouldPauseMonitor(monitor) && videoPath) {
                     console.info("MpvPaper: Scheduled restart for", monitor)
                     root.forceRestartMpvPaper(monitor, videoPath, root.getEffectiveSettings(videoPath))
                 }
@@ -1423,7 +1619,7 @@ PluginComponent {
         transitions = ({})
         transitionOverlays = ({})
         transitionTimers = ({})
-        lockPausedMonitors = ({})
+        appliedPauseStates = ({})
         recoveryTimers = ({})
         stabilityTimers = ({})
         recoveryAttempts = ({})
@@ -1432,6 +1628,7 @@ PluginComponent {
         console.info("MpvPaper Daemon: Starting...")
         ready = true
         syncVideosWithData()
+        pauseStateDebounce.restart()
     }
 
     Component.onDestruction: {
