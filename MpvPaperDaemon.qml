@@ -32,6 +32,7 @@ PluginComponent {
     property bool isSyncing: false
     property var liveNiriWorkspaces: null
     property bool liveNiriQueryInFlight: false
+    property bool niriPauseSocketResetting: false
 
     property var restartTimers: ({})
     property var recoveryTimers: ({})
@@ -40,12 +41,17 @@ PluginComponent {
     property var recoveryKeys: ({})
     property int maxRecoveryAttempts: 5
     property int restartInterval: ((pluginData.restartInterval === undefined || pluginData.restartInterval === null)
-        ? 60
+        ? 0
         : Number(pluginData.restartInterval)) * 60000
     readonly property string lockBehavior: pluginData.lockBehavior === "pause" ? "pause" : "stop"
     readonly property bool pauseOnFullscreen: (pluginData.pauseOnFullscreen === undefined || pluginData.pauseOnFullscreen === null)
         ? true
         : !!pluginData.pauseOnFullscreen
+    readonly property bool niriPauseTrackingActive: root.ready
+        && root.pauseOnFullscreen
+        && CompositorService.isNiri
+        && !root.isLocked
+        && Object.keys(root.processes).length > 0
 
     // Sockets and one-shot frames are runtime state only. Never fall back to
     // GenericCacheLocation: if RuntimeLocation is unavailable, hot switching
@@ -54,6 +60,7 @@ PluginComponent {
     property string lastPaletteVideoPath: ""
     property string lastPaletteFramePath: ""
     property string paletteTargetVideoPath: ""
+    property string paletteMonitor: ""
 
     onIsLockedChanged: {
         if (isLocked) {
@@ -76,7 +83,7 @@ PluginComponent {
         if (!ready || isSyncing) return
 
         const newInterval = ((pluginData.restartInterval === undefined || pluginData.restartInterval === null)
-            ? 60
+            ? 0
             : Number(pluginData.restartInterval)) * 60000
         if (newInterval !== restartInterval) {
             restartInterval = newInterval
@@ -107,17 +114,68 @@ PluginComponent {
         onTriggered: syncPauseStates()
     }
 
-    // NiriService can retain an old active_window_id while a horizontal page
-    // changes. Refresh only the state used by the pause predicate.
+    // NiriService is cached and can temporarily retain an old active_window_id.
+    // Keep the original 500 ms authoritative refresh, but query Niri directly
+    // over one persistent Unix socket instead of spawning `niri msg` each time.
     Timer {
         id: niriPausePoll
         interval: 500
         repeat: true
-        running: root.ready
-            && root.pauseOnFullscreen
-            && CompositorService.isNiri
-            && !root.isLocked
+        running: root.niriPauseTrackingActive
         onTriggered: root.refreshLiveNiriWorkspaces()
+    }
+
+    // A timed-out reply may still arrive on the same stream. Recreate the
+    // socket instead of releasing in-flight state and misattributing it later.
+    Timer {
+        id: niriPauseQueryTimeout
+        interval: 1000
+        repeat: false
+        onTriggered: root.resetNiriPauseSocket("workspace query timed out")
+    }
+
+    Timer {
+        id: niriPauseSocketResetTimer
+        interval: 0
+        repeat: false
+        onTriggered: root.niriPauseSocketResetting = false
+    }
+
+    DankSocket {
+        id: niriPauseSocket
+        path: Quickshell.env("NIRI_SOCKET") || ""
+        connected: root.niriPauseTrackingActive
+            && !root.niriPauseSocketResetting
+            && path.length > 0
+
+        parser: SplitParser {
+            onRead: line => root.handleNiriPauseReply(line)
+        }
+
+        onConnectionStateChanged: {
+            if (!linkUp) {
+                niriPauseQueryTimeout.stop()
+                root.liveNiriQueryInFlight = false
+                return
+            }
+            root.refreshLiveNiriWorkspaces()
+        }
+    }
+
+    Connections {
+        target: Theme
+
+        function onCurrentThemeChanged() {
+            if (!root.ready || Theme.currentTheme !== Theme.dynamic) return
+
+            // Use the monitor that last updated the palette, if still playing.
+            const monitor = root.processes[root.paletteMonitor]
+                ? root.paletteMonitor
+                : Object.keys(root.processes).pop()
+            const process = root.processes[monitor]
+            if (process?.videoPath)
+                root.updateWallpaperPalette(monitor, process.videoPath, true)
+        }
     }
 
     Connections {
@@ -283,20 +341,25 @@ PluginComponent {
     }
 
     function processSettingsKey(settings) {
+        const volume = settings.volume === undefined || settings.volume === null ? 0 : Number(settings.volume)
+        // Crossing zero requires a new player to enable or disable audio tracks.
         return JSON.stringify({
             disableUserScripts: settings.disableUserScripts !== false,
-            customMpvOptions: (settings.customMpvOptions || "").trim()
+            customMpvOptions: (settings.customMpvOptions || "").trim(),
+            audioDisabled: volume === 0
         })
     }
 
     function buildFileLocalOptions(settings) {
         const panscan = settings.panscan === undefined || settings.panscan === null ? 1.0 : settings.panscan
-        const volume = settings.volume === undefined || settings.volume === null ? 0 : settings.volume
-        return {
+        const volume = settings.volume === undefined || settings.volume === null ? 0 : Number(settings.volume)
+        const options = {
             hwdec: String(settings.hwdec || "auto"),
             panscan: String(panscan),
             volume: String(volume)
         }
+        if (volume === 0) options.aid = "no"
+        return options
     }
 
     function recoveryKeyFor(videoPath, settings) {
@@ -349,29 +412,57 @@ PluginComponent {
     }
 
     function refreshLiveNiriWorkspaces() {
-        if (!ready || !CompositorService.isNiri || liveNiriQueryInFlight) return
+        if (!niriPauseTrackingActive || liveNiriQueryInFlight || !niriPauseSocket.linkUp) return
 
         liveNiriQueryInFlight = true
-        Proc.runCommand(
-            "mpvpaper.niri.workspaces",
-            ["niri", "msg", "-j", "workspaces"],
-            (stdout, exitCode) => {
-                liveNiriQueryInFlight = false
-                if (exitCode !== 0) return
+        niriPauseQueryTimeout.restart()
+        niriPauseSocket.send(JSON.stringify("Workspaces"))
+    }
 
-                try {
-                    const workspaces = JSON.parse((stdout || "").trim())
-                    if (!Array.isArray(workspaces)) return
-                    liveNiriWorkspaces = workspaces
-                    syncPauseStates()
-                } catch (error) {
-                    return
-                }
-            },
-            0,
-            1000,
-            root
-        )
+    function resetNiriPauseSocket(reason) {
+        niriPauseQueryTimeout.stop()
+        liveNiriQueryInFlight = false
+
+        if (niriPauseSocketResetting) return
+        if (reason) console.warn("MpvPaper: Resetting Niri pause socket -", reason)
+
+        niriPauseSocketResetting = true
+        niriPauseSocketResetTimer.restart()
+    }
+
+    function handleNiriPauseReply(line) {
+        const text = (line || "").trim()
+        if (!text) return
+
+        if (!liveNiriQueryInFlight) {
+            resetNiriPauseSocket("unexpected workspace reply")
+            return
+        }
+
+        let reply
+        try {
+            reply = JSON.parse(text)
+        } catch (error) {
+            resetNiriPauseSocket("invalid workspace reply")
+            return
+        }
+
+        niriPauseQueryTimeout.stop()
+        liveNiriQueryInFlight = false
+
+        if (reply?.Err !== undefined) {
+            console.warn("MpvPaper: Niri workspace query failed -", reply.Err)
+            return
+        }
+
+        const workspaces = reply?.Ok?.Workspaces
+        if (!Array.isArray(workspaces)) {
+            console.warn("MpvPaper: Niri workspace query returned an unexpected reply")
+            return
+        }
+
+        liveNiriWorkspaces = workspaces
+        syncPauseStates()
     }
 
     function niriActiveWindowCoversMonitor(monitor) {
@@ -1346,9 +1437,10 @@ PluginComponent {
                 if (settings.disableUserScripts !== false) mpvOptions.push("load-scripts=no")
 
                 const panscan = settings.panscan === undefined || settings.panscan === null ? 1.0 : settings.panscan
-                const volume = settings.volume === undefined || settings.volume === null ? 0 : settings.volume
+                const volume = settings.volume === undefined || settings.volume === null ? 0 : Number(settings.volume)
                 mpvOptions.push("panscan=" + panscan)
                 mpvOptions.push("volume=" + volume)
+                if (volume === 0) mpvOptions.push("aid=no")
 
                 if (ipcPath) mpvOptions.push("input-ipc-server=" + ipcPath)
 
@@ -1524,11 +1616,14 @@ PluginComponent {
         restartTimers = mapWithout(restartTimers, monitor)
     }
 
-    function updateWallpaperPalette(monitor, videoPath) {
+    function updateWallpaperPalette(monitor, videoPath, forceRefresh) {
+        paletteMonitor = monitor
+        if (typeof Theme === "undefined" || Theme.currentTheme !== Theme.dynamic) return
+        if (!videoPath) return
         if (videoPath === paletteTargetVideoPath) return
-        paletteTargetVideoPath = videoPath
 
-        if (videoPath === lastPaletteVideoPath) {
+        // Re-entering the dynamic theme must apply colors for this video again.
+        if (!forceRefresh && videoPath === lastPaletteVideoPath) {
             console.info("MpvPaper: Palette already up-to-date for", videoPath)
             return
         }
@@ -1539,6 +1634,7 @@ PluginComponent {
             return
         }
 
+        paletteTargetVideoPath = videoPath
         console.info("MpvPaper: Extracting runtime still frame for palette from", videoPath)
         const extractor = stillFrameExtractorComponent.createObject(root, {
             videoPath: videoPath,

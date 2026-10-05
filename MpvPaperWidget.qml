@@ -5,7 +5,6 @@ import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import qs.Common
-import qs.Services
 import qs.Widgets
 import qs.Modules.Plugins
 import qs.Modals.FileBrowser
@@ -37,7 +36,6 @@ PluginComponent {
     property int totalPages: Math.max(1, Math.ceil(getPlaylist().length / itemsPerPage))
     property int refreshTrigger: 0
     property int gridIndex: 0
-    property bool enableAnimation: false
     property var fileBrowserParentPopout: null
     property bool sameOnAllMonitors: pluginData.sameOnAllMonitors || false
 
@@ -401,22 +399,39 @@ PluginComponent {
                                         anchors.fill: parent; fillMode: Image.PreserveAspectCrop; asynchronous: true; cache: true
                                         layer.enabled: true; layer.effect: MultiEffect { maskEnabled: true; maskSource: maskRect }
                                         property string videoPath: modelData
+                                        property string thumbnailPath: ""
+                                        property string thumbnailCacheDir: ""
                                         Component.onCompleted: generateThumbnail()
                                         function generateThumbnail() {
-                                            const cacheDir = StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "") + "/DankMaterialShell/mpvpaper_thumbnails"
-                                            const hash = videoPath.split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a }, 0)
-                                            const thumbPath = cacheDir + "/" + Math.abs(hash) + "_thumb.jpg"
-                                            thumbCheck.command = ["test", "-f", thumbPath]; thumbCheck.thumbPath = thumbPath; thumbCheck.running = true
+                                            thumbnailCacheDir = StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "") + "/DankMaterialShell/mpvpaper_thumbnails"
+                                            const hash = videoPath.split('').reduce((a, b) => {
+                                                a = ((a << 5) - a) + b.charCodeAt(0)
+                                                return a & a
+                                            }, 0)
+                                            const fileName = Math.abs(hash) + "_thumb.jpg"
+                                            const cached = StandardPaths.locate(
+                                                StandardPaths.GenericCacheLocation,
+                                                "DankMaterialShell/mpvpaper_thumbnails/" + fileName,
+                                                StandardPaths.LocateFile
+                                            )
+                                            thumbnailPath = thumbnailCacheDir + "/" + fileName
+                                            if (cached.toString() !== "") {
+                                                thumbnailImage.source = cached
+                                                return
+                                            }
+                                            thumbGen.running = true
                                         }
-                                        Process { id: thumbCheck; property string thumbPath: ""; onExited: (code) => { if (code === 0) thumbnailImage.source = "file://" + thumbPath; else thumbGen.running = true } }
                                         Process {
                                             id: thumbGen
                                             command: [
                                                 "bash", "-c",
                                                 'mkdir -p -- "$1" && ffmpeg -loglevel error -i "$2" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$3" -y',
-                                                "mpvpaper-thumbnail", StandardPaths.writableLocation(StandardPaths.GenericCacheLocation).toString().replace("file://", "") + "/DankMaterialShell/mpvpaper_thumbnails", modelData, thumbCheck.thumbPath
+                                                "mpvpaper-thumbnail", thumbnailImage.thumbnailCacheDir, modelData, thumbnailImage.thumbnailPath
                                             ]
-                                            onExited: (code) => { if (code === 0) thumbnailImage.source = "file://" + thumbCheck.thumbPath }
+                                            onExited: code => {
+                                                if (code === 0)
+                                                    thumbnailImage.source = "file://" + thumbnailImage.thumbnailPath
+                                            }
                                         }
                                     }
                                     DankIcon { anchors.centerIn: parent; name: "movie"; size: 24; color: Theme.primary; visible: thumbnailImage.status !== Image.Ready }

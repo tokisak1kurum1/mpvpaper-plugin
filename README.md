@@ -13,8 +13,8 @@ Video wallpaper plugin for [Dank Material Shell](https://github.com/AvengeMedia/
 - DankBar widget for browsing and switching wallpapers
 - Hardware decoding with `auto`, `nvdec`, `vaapi`, and `vdpau`, plus fill mode and volume controls
 - Configurable lock-screen behavior: stop the player or pause and resume from the current position
-- Configurable periodic `mpvpaper` restart for long-running sessions
-- Dynamic DMS colors generated from the active video wallpaper
+- Configurable periodic `mpvpaper` restart, disabled by default
+- DMS dynamic colors generated from the active video wallpaper, including when switching to the dynamic theme
 - English and Simplified Chinese settings
 
 ## Installation
@@ -41,9 +41,13 @@ yay -S mpvpaper
 
 The settings page and DankBar widget use the same video library. Changing a wallpaper only changes the current selection; adding videos does not automatically replace the active wallpaper.
 
+Setting the volume to zero disables audio tracks. Switching between zero and a positive volume restarts the player once; changing between positive volumes reuses the player.
+
+Scheduled restarts are disabled for new configurations. Previously saved restart intervals are preserved. Video frames are extracted for palette generation only while the DMS dynamic theme is active.
+
 ## Requirements
 
-- DMS 1.5.0 or later
+- DMS 1.6.2 or later
 - [`mpvpaper`](https://github.com/GhostNaN/mpvpaper)
 - `ffmpeg` for thumbnails and dynamic color extraction
 
@@ -64,8 +68,8 @@ MIT
 - 提供 DankBar 组件，可直接浏览和切换视频壁纸
 - 支持 `auto`、`nvdec`、`vaapi`、`vdpau` 硬件解码，并提供画面填充和音量设置
 - 锁屏时可选择关闭播放器，或暂停播放并在解锁后从当前位置继续
-- 可设置定时重启 `mpvpaper`，用于长时间运行场景
-- 根据当前视频壁纸生成 DMS 动态配色
+- 可设置定时重启 `mpvpaper`，默认关闭
+- 根据当前视频壁纸生成 DMS 动态配色，切换到动态主题时也会更新配色
 - 设置界面支持 English 和简体中文
 
 ### 安装
@@ -92,9 +96,13 @@ yay -S mpvpaper
 
 设置页面和 DankBar 组件共用同一个视频库。添加视频只会加入视频库，不会自动替换当前正在播放的壁纸。
 
+音量为零时禁用音轨。零音量与非零音量之间切换会重启播放器一次；非零音量之间调整时复用播放器。
+
+新配置默认关闭定时重启，之前保存的重启间隔保持有效。仅在 DMS 动态主题启用时提取视频帧生成配色。
+
 ### 依赖
 
-- DMS 1.5.0 或更高版本
+- DMS 1.6.2 或更高版本
 - [`mpvpaper`](https://github.com/GhostNaN/mpvpaper)
 - `ffmpeg`，用于生成视频缩略图和动态配色取帧
 

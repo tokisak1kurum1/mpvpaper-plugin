@@ -1,8 +1,6 @@
 import QtCore
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Effects
-import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Common
@@ -126,7 +124,6 @@ PluginSettings {
         }
 
         DankToggle {
-            id: sameOnAllMonitorsSwitch
             anchors.verticalCenter: parent.verticalCenter
             checked: root.sameOnAllMonitors
 
@@ -255,7 +252,6 @@ PluginSettings {
             property bool isSelected: videoGridView.currentIndex === index
 
             Rectangle {
-                id: videoCard
                 anchors.fill: parent
                 anchors.margins: Theme.spacingXS
                 radius: Theme.cornerRadius
@@ -323,43 +319,33 @@ PluginSettings {
                             a = ((a << 5) - a) + b.charCodeAt(0)
                             return a & a
                         }, 0)
+                        const fileName = Math.abs(hash) + "_thumb.jpg"
+                        const cached = StandardPaths.locate(
+                            StandardPaths.GenericCacheLocation,
+                            "DankMaterialShell/mpvpaper_thumbnails/" + fileName,
+                            StandardPaths.LocateFile
+                        )
 
-                        thumbnailPath = cacheDir + "/" + Math.abs(hash) + "_thumb.jpg"
-                        playlistThumbCheckProcess.thumbnailPath = thumbnailPath
-                        playlistThumbCheckProcess.videoPath = videoPath
-                        playlistThumbCheckProcess.cacheDir = cacheDir
-                        playlistThumbCheckProcess.command = ["test", "-f", thumbnailPath]
-                        playlistThumbCheckProcess.running = true
-                    }
-
-                    Process {
-                        id: playlistThumbCheckProcess
-                        property string thumbnailPath: ""
-                        property string videoPath: ""
-                        property string cacheDir: ""
-
-                        onExited: code => {
-                            if (code === 0) {
-                                thumbnailImage.source = "file://" + thumbnailPath
-                            } else {
-                                playlistThumbGenProcess.thumbnailPath = thumbnailPath
-                                playlistThumbGenProcess.videoPath = videoPath
-                                playlistThumbGenProcess.cacheDir = cacheDir
-                                playlistThumbGenProcess.command = [
-                                    "bash", "-c",
-                                    'mkdir -p -- "$1" && ffmpeg -loglevel error -i "$2" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$3" -y',
-                                    "mpvpaper-thumbnail", cacheDir, videoPath, thumbnailPath
-                                ]
-                                playlistThumbGenProcess.running = true
-                            }
+                        thumbnailPath = cacheDir + "/" + fileName
+                        if (cached.toString() !== "") {
+                            thumbnailImage.source = cached
+                            return
                         }
+
+                        playlistThumbGenProcess.thumbnailPath = thumbnailPath
+                        playlistThumbGenProcess.videoPath = videoPath
+                        playlistThumbGenProcess.command = [
+                            "bash", "-c",
+                            'mkdir -p -- "$1" && ffmpeg -loglevel error -i "$2" -ss 00:00:01 -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=increase,crop=320:180" -q:v 3 "$3" -y',
+                            "mpvpaper-thumbnail", cacheDir, videoPath, thumbnailPath
+                        ]
+                        playlistThumbGenProcess.running = true
                     }
 
                     Process {
                         id: playlistThumbGenProcess
                         property string thumbnailPath: ""
                         property string videoPath: ""
-                        property string cacheDir: ""
 
                         onExited: code => {
                             if (code === 0) thumbnailImage.source = "file://" + thumbnailPath
@@ -393,11 +379,10 @@ PluginSettings {
                 }
 
                 Rectangle {
-                    id: removeButton
                     width: 24
                     height: 24
                     radius: 12
-                    color: "#D32F2F"
+                    color: Theme.error
                     anchors.top: parent.top
                     anchors.right: parent.right
                     anchors.margins: 8
@@ -408,7 +393,7 @@ PluginSettings {
                         anchors.centerIn: parent
                         name: "close"
                         size: 16
-                        color: "white"
+                        color: Theme.onError
                     }
 
                     MouseArea {
@@ -685,18 +670,18 @@ PluginSettings {
                     target: restartIntervalDropdown
                     property: "currentValue"
                     value: {
-                        const interval = loadValue("restartInterval", 60)
+                        const interval = loadValue("restartInterval", 0)
                         if (interval === 0) return MpvPaperI18n.tr("Disabled", "mpvpaper")
                         if (interval === 10) return MpvPaperI18n.tr("10 Minutes", "mpvpaper")
                         if (interval === 30) return MpvPaperI18n.tr("30 Minutes", "mpvpaper")
                         if (interval === 60) return MpvPaperI18n.tr("1 Hour", "mpvpaper")
                         if (interval === 120) return MpvPaperI18n.tr("2 Hours", "mpvpaper")
-                        return MpvPaperI18n.tr("1 Hour", "mpvpaper")
+                        return MpvPaperI18n.tr("Disabled", "mpvpaper")
                     }
                 }
 
                 onValueChanged: value => {
-                    let interval = 60
+                    let interval = 0
                     if (value === MpvPaperI18n.tr("Disabled", "mpvpaper")) interval = 0
                     else if (value === MpvPaperI18n.tr("10 Minutes", "mpvpaper")) interval = 10
                     else if (value === MpvPaperI18n.tr("30 Minutes", "mpvpaper")) interval = 30
