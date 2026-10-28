@@ -1,111 +1,113 @@
 # MpvPaper Plugin
 
-[English](#mpvpaper-plugin) | [简体中文](#简体中文)
+A video and image wallpaper chooser for [Dank Material Shell (DMS)](https://github.com/AvengeMedia/DankMaterialShell). It brings still and animated wallpapers together in one monitor-aware chooser, with per-wallpaper gamma controls and synchronized video playback.
 
-![MpvPaper settings](screenshot.png)
-
-Video wallpaper plugin for [Dank Material Shell](https://github.com/AvengeMedia/DankMaterialShell). It uses `mpvpaper` for playback and includes both a settings interface and a DankBar wallpaper switcher.
+![MpvPaper wallpaper chooser](screenshot.png)
 
 ## Features
 
-- Smooth wallpaper switching without restarting `mpvpaper` for every video change
-- Shared video library with independent wallpaper selection per monitor, or one wallpaper across all monitors
-- DankBar widget for browsing and switching wallpapers
-- Hardware decoding with `auto`, `nvdec`, `vaapi`, and `vdpau`, plus fill mode and volume controls
-- Configurable lock-screen behavior: stop the player or pause and resume from the current position
-- Configurable periodic `mpvpaper` restart, disabled by default
-- DMS dynamic colors generated from the active video wallpaper, including when switching to the dynamic theme
-- English and Simplified Chinese settings
+### Unified wallpaper chooser
 
-## Installation
+- Browse images and videos in one large, paged grid.
+- Keep images and videos grouped while sorting each group automatically by representative color.
+- Scroll the mouse wheel over the chooser to move between pages.
+- Hover over a video tile to preview it in the cover; moving away restores the cover image.
+- See each item’s resolution and, for videos, frame rate.
+- Move an unwanted image or video to the desktop Trash from its tile. The original file is not permanently deleted.
+- Choose a specific monitor or apply a wallpaper to all monitors.
 
-MpvPaper Plugin is available in the DMS Plugin Directory.
+### Gamma correction
 
-1. Open **DMS Settings → Plugins → Browse**.
-2. Search for **MpvPaper Plugin**.
-3. Install and enable the plugin.
+- Adjust image and video gamma with the slider in the chooser; changes apply immediately without an Apply button.
+- Each image and video keeps its own saved gamma value.
+- The slider covers 0.25–2.00, uses fine steps, and places the original value (1.00) at the center.
+- Still-image corrections are generated in a cache, leaving the source image untouched. Video gamma is changed live through mpv’s IPC interface.
 
-Install the required system packages first. On Arch Linux:
+### Video playback
 
-```bash
-sudo pacman -S ffmpeg
-yay -S mpvpaper
-```
+- Play video wallpapers through `mpvpaper` and switch wallpapers with a transition guard to avoid flashes.
+- Keep monitors playing the same file aligned, including when the file is assigned separately to each monitor.
+- Support the hardware-decoding modes exposed by mpvpaper and configure fill mode, volume, lock-screen behavior, and optional player settings.
+- Pause on fullscreen applications and resume when appropriate, depending on the plugin settings.
+- The settings interface supports English and Simplified Chinese.
 
-## Usage
+## Screenshot
 
-1. Open the plugin settings and add video files or a folder.
-2. Select a monitor and choose its wallpaper, or enable the same wallpaper for all monitors.
-3. Configure playback, lock-screen behavior, and optional advanced MPV settings as needed.
-4. Add **MpvPaper Plugin** to the DankBar layout if you want quick wallpaper switching from the bar.
-
-The settings page and DankBar widget use the same video library. Changing a wallpaper only changes the current selection; adding videos does not automatically replace the active wallpaper.
-
-Setting the volume to zero disables audio tracks. Switching between zero and a positive volume restarts the player once; changing between positive volumes reuses the player.
-
-Scheduled restarts are disabled for new configurations. Previously saved restart intervals are preserved. Video frames are extracted for palette generation only while the DMS dynamic theme is active.
+The screenshot above shows the combined chooser, monitor selector, gamma slider, image/video badges, and tile actions.
 
 ## Requirements
 
-- DMS 1.6.2 or later
-- [`mpvpaper`](https://github.com/GhostNaN/mpvpaper)
-- `ffmpeg` for thumbnails and dynamic color extraction
+- Dank Material Shell 1.6.2 or later
+- `mpvpaper` for video wallpapers
+- `ffmpeg` (including `ffprobe`) for video thumbnails, metadata, and color sampling
+- Python 3 and Pillow for automatic color sorting
+- ImageMagick (`magick`) for cached gamma-corrected still images
+- DMS's `dms trash put` command for moving files to the desktop Trash
 
-## License
+Hardware video decoding is optional. The selected decoder depends on the installed graphics drivers and mpvpaper build.
 
-MIT
+### Install on Debian 13
 
----
+Install the plugin's runtime tools:
 
-## 简体中文
-
-用于 [Dank Material Shell](https://github.com/AvengeMedia/DankMaterialShell) 的视频壁纸插件。插件使用 `mpvpaper` 播放视频壁纸，并提供完整的设置界面和 DankBar 壁纸切换组件。
-
-### 功能
-
-- 切换视频时复用现有 `mpvpaper` 播放进程，减少黑屏、闪烁和重新启动造成的卡顿
-- 使用统一的视频库，可为每个显示器分别选择壁纸，也可让所有显示器使用同一壁纸
-- 提供 DankBar 组件，可直接浏览和切换视频壁纸
-- 支持 `auto`、`nvdec`、`vaapi`、`vdpau` 硬件解码，并提供画面填充和音量设置
-- 锁屏时可选择关闭播放器，或暂停播放并在解锁后从当前位置继续
-- 可设置定时重启 `mpvpaper`，默认关闭
-- 根据当前视频壁纸生成 DMS 动态配色，切换到动态主题时也会更新配色
-- 设置界面支持 English 和简体中文
-
-### 安装
-
-MpvPaper Plugin 已收录在 DMS Plugin Directory 中。
-
-1. 打开 **DMS 设置 → 插件 → 浏览**。
-2. 搜索 **MpvPaper Plugin**。
-3. 安装并启用插件。
-
-请先安装系统依赖。Arch Linux：
-
-```bash
-sudo pacman -S ffmpeg
-yay -S mpvpaper
+```sh
+sudo apt update
+sudo apt install ffmpeg python3-pil imagemagick
 ```
 
-### 使用
+The DMS shell itself must already be installed; its `dms trash` command handles Trash operations.
 
-1. 打开插件设置，添加视频文件或整个视频文件夹。
-2. 选择显示器并设置对应壁纸；也可以启用“所有显示器使用相同壁纸”。
-3. 按需设置硬件解码、画面填充、音量、锁屏行为和高级 MPV 参数。
-4. 如需从状态栏快速切换壁纸，可在 DankBar 布局中添加 **MpvPaper Plugin**。
+If `mpvpaper` is not available from your enabled APT repositories, install its build dependencies and compile it from the upstream source:
 
-设置页面和 DankBar 组件共用同一个视频库。添加视频只会加入视频库，不会自动替换当前正在播放的壁纸。
+```sh
+sudo apt install build-essential git meson ninja-build pkg-config \
+  libmpv-dev libwayland-dev libegl-dev wayland-protocols
 
-音量为零时禁用音轨。零音量与非零音量之间切换会重启播放器一次；非零音量之间调整时复用播放器。
+git clone https://github.com/GhostNaN/mpvpaper.git
+cd mpvpaper
+meson setup build --prefix=/usr/local
+ninja -C build
+sudo ninja -C build install
+```
 
-新配置默认关闭定时重启，之前保存的重启间隔保持有效。仅在 DMS 动态主题启用时提取视频帧生成配色。
+The upstream build instructions and dependency list are in the [mpvpaper README](https://github.com/GhostNaN/mpvpaper#building). If your distribution provides a compatible `mpvpaper` package, install that package instead of building from source.
 
-### 依赖
+## Install
 
-- DMS 1.6.2 或更高版本
-- [`mpvpaper`](https://github.com/GhostNaN/mpvpaper)
-- `ffmpeg`，用于生成视频缩略图和动态配色取帧
+Install and enable **MpvPaper Plugin** from the DMS plugin browser. For local development, copy this directory into the DMS plugins folder while preserving the `mpvpaper` directory name (the plugin ID is `mpvpaper`), then reload the plugin:
 
-### 许可证
+```sh
+mkdir -p ~/.config/DankMaterialShell/plugins
+cp -a /path/to/dms-wallpaper-studio ~/.config/DankMaterialShell/plugins/mpvpaper
+dms ipc call plugins reload mpvpaper
+```
 
-MIT
+If the plugin is already installed at that path, back it up before replacing it. The DMS plugin directory can differ by installation; use the directory configured by your DMS setup.
+
+## Use
+
+1. Enable the plugin in DMS. Add video files or a folder from its settings page; the chooser also uses wallpaper images exposed by DMS.
+2. Open the wallpaper chooser from the plugin’s DankBar widget.
+3. Select **All** to use the same wallpaper across monitors, or select a monitor to set its wallpaper individually.
+4. Click an image or video tile to apply it. Drag the gamma slider to adjust that item; the value is saved automatically.
+5. Use the page controls or mouse wheel to browse the library. Hover over a video tile for its preview.
+
+## Performance note
+
+`mpvpaper` runs a player for each output. A high-resolution, high-frame-rate video can therefore use substantial CPU and GPU resources when displayed on several monitors. Hardware decoding reduces the video-decoding work, but each output still needs frame scheduling, rendering, scaling, and compositing. For lower system load, prefer videos around 24–60 fps; a 4K 240 fps wallpaper can be much more demanding.
+
+## Project files
+
+| File | Purpose |
+| --- | --- |
+| `MpvPaperWidget.qml` | Wallpaper chooser, previews, paging, monitor controls, gamma slider, and tile actions |
+| `MpvPaperDaemon.qml` | mpvpaper process lifecycle, transitions, IPC, pause behavior, and playback synchronization |
+| `MpvPaperSettings.qml` | Plugin configuration and video-library management |
+| `MpvPaperTransition.qml` | Transition overlay used while a new video starts |
+| `color_sort.py` | Cached representative-color analysis for image and video files |
+| `gamma_cache.py` | Generates cached gamma-corrected images without changing the originals |
+| `plugin.json` | DMS plugin manifest |
+
+## Credits and license
+
+The original MpvPaper Plugin was created by tokisak1kurum1. The MIT license and original copyright notice are included in [`LICENSE`](LICENSE). Dank Material Shell, mpvpaper, and the other referenced projects retain their own licenses and trademarks.

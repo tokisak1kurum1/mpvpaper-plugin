@@ -25,7 +25,10 @@ PluginComponent {
     property var transitionOverlays: ({})
     property var transitionTimers: ({})
     property var appliedPauseStates: ({})
+    property var playbackSyncCycle: null
+    property var playbackSyncRequests: ({})
     property int nextRequestId: 1
+    property int playbackSyncGroupCursor: 0
 
     property var previousScreenNames: []
     property bool ready: false
@@ -112,6 +115,24 @@ PluginComponent {
         interval: 50
         repeat: false
         onTriggered: syncPauseStates()
+    }
+
+    // mpvpaper runs one mpv process per output. Keep outputs showing the same
+    // video on the same media time, even when assigned separately per monitor.
+    Timer {
+        id: playbackSyncTimer
+        interval: 1500
+        repeat: true
+        running: root.ready && !root.isLocked && Object.keys(root.processes).length > 1
+            && Quickshell.screens.length > 1
+        onTriggered: root.beginPlaybackSync()
+    }
+
+    Timer {
+        id: playbackSyncTimeout
+        interval: 800
+        repeat: false
+        onTriggered: root.cancelPlaybackSync("IPC query timeout")
     }
 
     // NiriService is cached and can temporarily retain an old active_window_id.
@@ -353,13 +374,27 @@ PluginComponent {
     function buildFileLocalOptions(settings) {
         const panscan = settings.panscan === undefined || settings.panscan === null ? 1.0 : settings.panscan
         const volume = settings.volume === undefined || settings.volume === null ? 0 : Number(settings.volume)
+        const gamma = settings.gamma === undefined || settings.gamma === null ? 1.0 : Number(settings.gamma)
         const options = {
             hwdec: String(settings.hwdec || "auto"),
             panscan: String(panscan),
-            volume: String(volume)
+            volume: String(volume),
+            "gamma-factor": String(gamma)
         }
         if (volume === 0) options.aid = "no"
         return options
+    }
+
+    function setVideoGammaFactor(monitor, gamma) {
+        const process = processes[monitor]
+        const socket = ipcSockets[monitor]
+        if (!process || !socket || !socket.connected || socket.ipcPath !== process.ipcPath)
+            return false
+
+        sendIpc(socket, {
+            command: ["set_property", "gamma-factor", Number(gamma)]
+        })
+        return true
     }
 
     function recoveryKeyFor(videoPath, settings) {
@@ -379,6 +414,155 @@ PluginComponent {
         nextRequestId += 1
         if (nextRequestId >= 2147483647) nextRequestId = 1
         return id
+    }
+
+    function beginPlaybackSync() {
+        if (playbackSyncCycle || isLocked) return
+
+        const monitors = Quickshell.screens.map(screen => screen.name)
+        if (monitors.length < 2) return
+
+        const groupsByVideo = ({})
+        for (const monitor of monitors) {
+            const process = processes[monitor]
+            const socket = ipcSockets[monitor]
+            if (!process || process.stopping || !process.videoPath
+                    || !socket || !socket.connected || socket.ipcPath !== process.ipcPath
+                    || transitions[monitor] || shouldPauseMonitor(monitor)) {
+                continue
+            }
+
+            if (!groupsByVideo[process.videoPath]) groupsByVideo[process.videoPath] = []
+            groupsByVideo[process.videoPath].push(monitor)
+        }
+
+        const groups = Object.keys(groupsByVideo)
+            .map(videoPath => ({ videoPath: videoPath, monitors: groupsByVideo[videoPath] }))
+            .filter(group => group.monitors.length > 1)
+        if (groups.length === 0) return
+
+        const group = groups[playbackSyncGroupCursor % groups.length]
+        playbackSyncGroupCursor = (playbackSyncGroupCursor + 1) % groups.length
+        const cycle = {
+            videoPath: group.videoPath,
+            master: group.monitors[0],
+            monitors: group.monitors,
+            readings: ({}),
+            requestIds: [],
+            responses: 0,
+            expectedResponses: group.monitors.length * 2
+        }
+        playbackSyncCycle = cycle
+
+        for (const monitor of group.monitors) {
+            const socket = ipcSockets[monitor]
+            for (const property of ["time-pos", "duration"]) {
+                const requestId = allocateRequestId()
+                cycle.requestIds.push(requestId)
+                playbackSyncRequests = mapWith(playbackSyncRequests, requestId, {
+                    cycle: cycle,
+                    monitor: monitor,
+                    property: property
+                })
+                sendIpc(socket, {
+                    command: ["get_property", property],
+                    request_id: requestId
+                })
+            }
+        }
+
+        playbackSyncTimeout.restart()
+    }
+
+    function cancelPlaybackSync(reason) {
+        const cycle = playbackSyncCycle
+        if (cycle) {
+            for (const requestId of cycle.requestIds)
+                playbackSyncRequests = mapWithout(playbackSyncRequests, requestId)
+        }
+        playbackSyncCycle = null
+        playbackSyncTimeout.stop()
+        if (reason && cycle) console.debug("MpvPaper: Playback sync skipped -", reason)
+    }
+
+    function handlePlaybackSyncReply(requestId, payload) {
+        const request = playbackSyncRequests[requestId]
+        playbackSyncRequests = mapWithout(playbackSyncRequests, requestId)
+        if (!request || request.cycle !== playbackSyncCycle) return
+
+        if (payload.error !== "success" || typeof payload.data !== "number" || !Number.isFinite(payload.data)) {
+            cancelPlaybackSync("mpv returned no " + request.property)
+            return
+        }
+
+        const reading = request.cycle.readings[request.monitor] || ({})
+        reading[request.property === "time-pos" ? "position" : "duration"] = payload.data
+        if (request.property === "time-pos") reading.receivedAt = Date.now()
+        request.cycle.readings[request.monitor] = reading
+        request.cycle.responses++
+
+        if (request.cycle.responses >= request.cycle.expectedResponses)
+            finishPlaybackSync(request.cycle)
+    }
+
+    function wrapPlaybackTime(position, duration) {
+        if (!Number.isFinite(duration) || duration <= 0) return position
+        return ((position % duration) + duration) % duration
+    }
+
+    function finishPlaybackSync(cycle) {
+        if (playbackSyncCycle !== cycle) return
+        cancelPlaybackSync("")
+
+        if (isLocked) return
+
+        const now = Date.now()
+        const master = cycle.readings[cycle.master]
+        if (!master || !Number.isFinite(master.position) || master.position < 0
+                || !Number.isFinite(master.duration) || master.duration <= 0
+                || !Number.isFinite(master.receivedAt)) return
+
+        const masterProcess = processes[cycle.master]
+        if (!masterProcess || masterProcess.videoPath !== cycle.videoPath) return
+
+        const targetPosition = wrapPlaybackTime(
+            master.position + Math.max(0, now - master.receivedAt) / 1000,
+            master.duration
+        )
+
+        for (const monitor of cycle.monitors) {
+            if (monitor === cycle.master) continue
+
+            const reading = cycle.readings[monitor]
+            const process = processes[monitor]
+            const socket = ipcSockets[monitor]
+            if (!reading || !Number.isFinite(reading.position) || reading.position < 0
+                    || !Number.isFinite(reading.duration) || reading.duration <= 0
+                    || !Number.isFinite(reading.receivedAt)
+                    || !process || process.videoPath !== cycle.videoPath
+                    || !socket || !socket.connected || socket.ipcPath !== process.ipcPath
+                    || shouldPauseMonitor(monitor)) {
+                continue
+            }
+
+            const currentPosition = wrapPlaybackTime(
+                reading.position + Math.max(0, now - reading.receivedAt) / 1000,
+                reading.duration
+            )
+            let drift = targetPosition - currentPosition
+            const duration = Math.min(master.duration || Infinity, reading.duration || Infinity)
+            if (Number.isFinite(duration) && duration > 0)
+                drift = ((drift + duration / 2) % duration + duration) % duration - duration / 2
+
+            // Avoid repeated seeks for sub-frame timing noise. Larger drifts
+            // are corrected with an exact seek to the master's current time.
+            if (Math.abs(drift) < 0.20) continue
+
+            console.info("MpvPaper: Correcting playback drift on", monitor, "by", drift.toFixed(3), "s")
+            sendIpc(socket, {
+                command: ["seek", targetPosition, "absolute+exact"]
+            })
+        }
     }
 
     function sanitizeMonitorName(monitor) {
@@ -624,6 +808,8 @@ PluginComponent {
             sameOnAllMonitors = pluginData.sameOnAllMonitors || false
             allMonitorsVideo = pluginData.allMonitorsVideo || ""
 
+            if (!sameOnAllMonitors || !allMonitorsVideo) cancelPlaybackSync("shared playback disabled")
+
             const connectedMonitors = Quickshell.screens.map(screen => screen.name)
             for (const monitor of connectedMonitors) {
                 const newVideoPath = getEffectiveVideo(monitor)
@@ -635,6 +821,20 @@ PluginComponent {
                 }
 
                 const newSettings = getEffectiveSettings(newVideoPath)
+                const oldGamma = process && process.settings && process.settings.gamma !== undefined
+                    ? Number(process.settings.gamma) : 1.0
+                const newGamma = newSettings.gamma === undefined || newSettings.gamma === null
+                    ? 1.0 : Number(newSettings.gamma)
+                const sameVideoProcess = process
+                    && process.videoPath === newVideoPath
+                    && processSettingsKey(process.settings || {}) === processSettingsKey(newSettings || {})
+                if (sameVideoProcess && Math.abs(oldGamma - newGamma) >= 0.001
+                        && setVideoGammaFactor(monitor, newGamma)) {
+                    process.settings = newSettings
+                    console.info("MpvPaper: Updated gamma live on", monitor, "to", newGamma)
+                    continue
+                }
+
                 const alreadyCurrent = process
                     && process.videoPath === newVideoPath
                     && deepEqual(process.settings || {}, newSettings || {})
@@ -749,6 +949,7 @@ PluginComponent {
     }
 
     function stopAllVideos() {
+        cancelPlaybackSync("all players stopped")
         for (const monitor in restartTimers) stopRestartTimer(monitor)
         const monitors = Object.keys(processes)
         for (const monitor of monitors) stopMpvPaper(monitor, false)
@@ -931,6 +1132,11 @@ PluginComponent {
     }
 
     function handleIpcReply(monitor, payload) {
+        if (playbackSyncRequests[payload.request_id]) {
+            handlePlaybackSyncReply(payload.request_id, payload)
+            return
+        }
+
         const transition = transitions[monitor]
         if (!transition) return
 
@@ -1092,7 +1298,10 @@ PluginComponent {
         cleanupRuntimePath(transition.framePath)
         applyMonitorPauseState(monitor, true)
         Qt.callLater(() => {
-            if (!isLocked) syncVideosWithData()
+            if (!isLocked) {
+                syncVideosWithData()
+                beginPlaybackSync()
+            }
         })
     }
 
@@ -1307,6 +1516,7 @@ PluginComponent {
         finishIpcRetry(monitor, ipcPath)
         flushPendingSwitch(monitor)
         if (!transitions[monitor]) applyMonitorPauseState(monitor, false)
+        Qt.callLater(() => root.beginPlaybackSync())
     }
 
     function handleIpcUnavailable(monitor, ipcPath) {
@@ -1399,7 +1609,8 @@ PluginComponent {
             property bool stopping: false
 
             command: {
-                const args = ["mpvpaper", "-l", "background"]
+                // Place the video above DMS's wallpaper layer, but below windows.
+                const args = ["mpvpaper", "-l", "bottom"]
                 const mpvOptions = []
 
                 // mpvpaper writes -o values into an mpv config file. Keep every
@@ -1411,6 +1622,9 @@ PluginComponent {
                 mpvOptions.push("hwdec-codecs=all")
 
                 mpvOptions.push("profile=fast")
+                // Keep the mpvpaper surface opaque so the static DMS wallpaper
+                // cannot show through transparent video frames or letterboxing.
+                mpvOptions.push("background-color=#000000")
                 mpvOptions.push("video-sync=display-resample")
                 mpvOptions.push("interpolation=no")
                 mpvOptions.push("scale=bilinear")
@@ -1438,8 +1652,10 @@ PluginComponent {
 
                 const panscan = settings.panscan === undefined || settings.panscan === null ? 1.0 : settings.panscan
                 const volume = settings.volume === undefined || settings.volume === null ? 0 : Number(settings.volume)
+                const gamma = settings.gamma === undefined || settings.gamma === null ? 1.0 : Number(settings.gamma)
                 mpvOptions.push("panscan=" + panscan)
                 mpvOptions.push("volume=" + volume)
+                mpvOptions.push("gamma-factor=" + gamma)
                 if (volume === 0) mpvOptions.push("aid=no")
 
                 if (ipcPath) mpvOptions.push("input-ipc-server=" + ipcPath)
